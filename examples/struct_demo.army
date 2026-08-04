@@ -1,0 +1,1544 @@
+// ====================================================================
+//  Army 语言 —— 完整语法用例
+//  文件分区顺序：struct 区 → interface 区 → 全局 func 区 → 全局变量区
+//  各区内部必须连续，不能交错
+// ====================================================================
+
+// ═══════════════════════ 内置类型 ═══════════════════════
+// int, float, decimal, string, bool, void, error
+
+
+// ====================================================================
+//  §1  struct 区 —— 所有 struct 定义及方法必须在此区连续出现
+// ====================================================================
+
+// ═══ 1.1 基础 struct ═══
+// struct 内只有字段；方法在外部紧跟；类型在左变量在右
+
+struct Point {
+    int x
+    int y
+}
+
+// 构造 —— 函数名 = struct 名，无返回值，唯一
+func (Point) Point(int x, int y) {
+    Point.x = x
+    Point.y = y
+}
+
+// 静态方法 —— receiver 无变量名
+func (Point) origin() Point {
+    return Point{int x: 0, int y: 0}
+}
+
+// 实例方法 —— receiver 有变量名；返回值在 ) 右边
+func (Point p) distance() float {
+    return sqrt(p.x * p.x + p.y * p.y)
+}
+
+// 无返回值 —— 省略返回类型
+func (Point p) translate(int dx, int dy) {
+    p.x = p.x + dx
+    p.y = p.y + dy
+}
+
+func (Point p) polar() (float r, float theta) {
+    r     = p.distance()
+    theta = atan2(p.y, p.x)
+    return
+}
+
+
+// ═══ 1.2 func 分区（编写者必须按此顺序手写，否则语法错误）════
+//       构造 func → 静态 func（public→private） → 实例 func（public→private）
+
+struct Counter {
+    static int total = 0
+}
+
+func (Counter) Counter() {
+    Counter.total = 0
+}
+
+// ── 静态 func 区，public → private ──
+func (Counter) factory() Counter {
+    return Counter{}
+}
+
+func~ (Counter) packageFactory() Counter {
+    return Counter{}
+}
+
+func- (Counter) filePrivateFactory() Counter {
+    return Counter{}
+}
+
+// ── 实例 func 区，public → private ──
+func (Counter c) increment() {
+    c.total = c.total + 1
+}
+
+func (Counter c) value() int {
+    return c.total
+}
+
+func~ (Counter c) resetLocal() {
+    c.total = 0
+}
+
+func- (Counter c) internalCheck() {
+    print(c.total)
+}
+
+
+// ═══ 1.3 static final 常量 ═══
+
+struct Math {
+    static final float   PI = 3.1415926535
+    static final decimal E  = 2.7182818284
+}
+
+func (Math) circleArea(float r) float {
+    return Math.PI * r * r
+}
+
+func (Math) compound(decimal principal, decimal rate, int n) decimal {
+    return principal * pow(1 + rate, n)
+}
+
+
+// ═══ 1.4 指针 receiver ═══
+
+struct Buffer {
+    int    size
+    string data
+}
+
+func (Buffer) Buffer(int sz, string d) {
+    Buffer.size = sz
+    Buffer.data = d
+}
+
+func (Buffer* b) reset() {                     // 指针 —— 可修改原值
+    b.size = 0
+    b.data = ""
+}
+
+func (Buffer* b) append(string s) {
+    b.data = b.data + s
+    b.size = b.data.length()
+}
+
+func (Buffer b) read() (string data, error err) {
+    if b.size == 0 {
+        return "", error("empty buffer")
+    }
+    return b.data, nil
+}
+
+
+// ═══ 1.5 匿名组合 ═══
+
+struct Animal {
+    string species
+    int    age
+}
+
+func (Animal) Animal(string s, int a) {
+    Animal.species = s
+    Animal.age     = a
+}
+
+func (Animal a) desc() string {
+    return a.species + "(" + intToString(a.age) + ")"
+}
+
+struct Pet {
+    Animal          // 匿名组合 —— 继承 species、age
+    string name
+}
+
+func (Pet) Pet(string s, int a, string n) {
+    Pet.species = s
+    Pet.age     = a
+    Pet.name    = n
+}
+
+func (Pet p) introduce() string {
+    return p.name + " is a " + p.species    // 能直接访问 species
+}
+
+// 多层匿名组合
+struct Dog {
+    Pet
+    string breed
+}
+
+func (Dog) Dog(string n, string b) {
+    Dog.name  = n
+    Dog.breed = b
+}
+
+func (Dog d) describe() string {
+    return d.breed + " named " + d.name     // Dog → Pet → Animal 全可访问
+}
+
+
+// ═══ 1.6 密封 struct（permits，无 sealed 关键字） ═══
+
+struct Shape permits Circle, Rectangle, Triangle {
+    string color
+}
+
+func (Shape) Shape(string c) {
+    Shape.color = c
+}
+
+func (Shape s) area() float {
+    return 0.0
+}
+
+struct Circle {
+    Shape
+    float radius
+}
+
+func (Circle) Circle(float r, string c) {
+    Circle.radius = r
+    Circle.color  = c
+}
+
+func (Circle c) area() float {
+    return Math.PI * c.radius * c.radius
+}
+
+struct Rectangle {
+    Shape
+    float width
+    float height
+}
+
+func (Rectangle) Rectangle(float w, float h, string c) {
+    Rectangle.width  = w
+    Rectangle.height = h
+    Rectangle.color  = c
+}
+
+func (Rectangle r) area() float {
+    return r.width * r.height
+}
+
+struct Triangle {
+    Shape
+    float base
+    float height
+}
+
+func (Triangle) Triangle(float b, float h, string c) {
+    Triangle.base   = b
+    Triangle.height = h
+    Triangle.color  = c
+}
+
+// struct Square { Shape; float side }   ❌ 不在 permits 列表中
+
+
+// ═══ 1.7 可见性（5 种基本 + 1 种降级） ═══
+
+// public —— 无后缀（默认）
+struct Order {
+    string id
+    decimal amount
+}
+
+func (Order) Order(string id, decimal amount) {
+    Order.id     = id
+    Order.amount = amount
+}
+
+func (Order o) total() decimal {
+    return o.amount
+}
+
+// 基包可见 —— #
+func# (Order) audit(Order o) bool {
+    return o.amount > 0
+}
+
+// 本包及子包 —— $
+struct$ InternalService {
+    string token
+}
+
+func$ (InternalService) InternalService(string t) {
+    InternalService.token = t
+}
+
+func$ (InternalService s) validate() bool {
+    return s.token.length() > 0
+}
+
+// 本包可见 —— ~
+struct~ PackageHelper {
+    int counter
+}
+
+func~ (PackageHelper) PackageHelper() {
+    PackageHelper.counter = 0
+}
+
+func~ (PackageHelper h) count() int {
+    return h.counter
+}
+
+// private（本文件）—— -
+struct- Config {
+    string secret
+}
+
+func- (Config) Config(string s) {
+    Config.secret = s
+}
+
+func- (Config c) secret() string {
+    return c.secret
+}
+
+
+// ═══ 1.8 降级可见性（_ 前缀，类型自身降一级） ═══
+
+struct _Person {
+    string name
+    int    age
+}
+
+func (_Person) _Person(string n, int a) {
+    _Person.name = n
+    _Person.age  = a
+}
+
+func (_Person p) name() string {               // 成员仍是 public
+    return p.name
+}
+
+// 外部可访问 p.name()，但不能声明 _Person 类型的变量
+// _Person 从 public 降为基包可见
+
+
+// ═══ 1.9 decimal 类型 ═══
+
+struct Price {
+    decimal amount
+    string  currency
+}
+
+func (Price) Price(decimal a, string c) {
+    Price.amount   = a
+    Price.currency = c
+}
+
+func (Price p) toUSD(decimal rate) decimal {
+    return p.amount * rate
+}
+
+func (Price p) info() (decimal amount, string currency) {
+    return p.amount, p.currency
+}
+
+
+// ═══ 1.10 struct 选项（& 前缀，紧跟在可见性之后） ═══
+
+// 1.10a. &ne（no-extension）—— 禁止本文件外为 struct 增加 func
+struct&ne ImmutableValue {                     // public，且不允许外部扩展方法
+    static final int MAX = 100
+    int              value
+}
+
+func (ImmutableValue) ImmutableValue(int v) {
+    if v > ImmutableValue.MAX {
+        ImmutableValue.value = ImmutableValue.MAX
+    } else {
+        ImmutableValue.value = v
+    }
+}
+
+func (ImmutableValue v) get() int {
+    return v.value
+}
+
+// 可见性 + 选项组合
+struct~&ne PackageSecret {                     // 本包可见 + 禁止外部扩展
+    string key
+}
+
+func~ (PackageSecret) PackageSecret(string k) {
+    PackageSecret.key = k
+}
+
+struct-&ne FilePrivate {                       // 本文件可见 + 禁止外部扩展
+    int id
+}
+
+// 1.10b. 无 ne 选项 = 默认允许包内其他文件扩展方法（例见下方 §1.12）
+
+
+// ═══ 1.11 枚举（@struct） ═══
+// 枚举是 struct 的特化，用 @struct 标注，不引入单独的 enum 关键字
+// 带数据的枚举常量和 Java 一样
+// 方法规则和普通 struct 完全一致：三分区（构造→静态→实例，public→private），写在外部紧跟
+
+// 1.11a. 简单枚举（无数据）
+@struct Day {
+    MONDAY
+    TUESDAY
+    WEDNESDAY
+    THURSDAY
+    FRIDAY
+    SATURDAY
+    SUNDAY
+}
+
+// ── 构造 func 区 ──
+// 编译器自动生成，不可手动编写
+// 编译器自动生成静态方法: values(), valueOf(string)
+
+// ── 静态 func 区（public→private） ──
+func (Day) fromOrdinal(int n) Day {
+    Day[] all := Day.values()
+    return all[n]
+}
+
+func- (Day) internalIndex(Day d) int {
+    return d.ordinal()
+}
+
+// ── 实例 func 区（public→private） ──
+func (Day d) isWeekend() bool {
+    return d == Day.SATURDAY || d == Day.SUNDAY
+}
+
+func (Day d) label() string {
+    return d.name()                                     // name() 由编译器生成
+}
+
+func- (Day d) isWorkday() bool {
+    return !d.isWeekend()
+}
+
+
+// 1.11b. 带数据枚举（和 Java 一样）
+@struct Color {
+    RED(255, 0, 0)
+    GREEN(0, 255, 0)
+    BLUE(0, 0, 255)
+
+    int r
+    int g
+    int b
+}
+
+// ── 构造 func 区：编译器根据常量数据自动生成 ──
+
+// ── 静态 func 区（public→private） ──
+func (Color) fromRGB(int r, int g, int b) Color {
+    Color[] all := Color.values()
+    for int i := 0; i < all.length(); i = i + 1 {
+        if all[i].r == r && all[i].g == g && all[i].b == b {
+            return all[i]
+        }
+    }
+    return Color.RED                                     // fallback
+}
+
+// ── 实例 func 区（public→private） ──
+func (Color c) hex() string {
+    return format("#%02X%02X%02X", c.r, c.g, c.b)
+}
+
+func (Color c) brightness() float {
+    return (float(c.r) * 0.299 + float(c.g) * 0.587 + float(c.b) * 0.114) / 255.0
+}
+
+func- (Color c) luminance() float {
+    return c.brightness()
+}
+
+
+// 1.11c. 带数据 + 更多字段
+@struct HttpStatus {
+    OK(200, "OK")
+    NOT_FOUND(404, "Not Found")
+    INTERNAL_ERROR(500, "Internal Server Error")
+
+    int    code
+    string message
+}
+
+// ── 构造 func 区：编译器自动生成 ──
+
+// ── 静态 func 区（public→private） ──
+func (HttpStatus) fromCode(int code) HttpStatus {
+    HttpStatus[] all := HttpStatus.values()
+    for int i := 0; i < all.length(); i = i + 1 {
+        if all[i].code == code {
+            return all[i]
+        }
+    }
+    return HttpStatus.OK
+}
+
+// ── 实例 func 区（public→private） ──
+func (HttpStatus s) isSuccess() bool {
+    return s.code >= 200 && s.code < 300
+}
+
+func (HttpStatus s) isError() bool {
+    return s.code >= 400
+}
+
+
+// 1.11d. 可见性枚举
+@struct~ InternalRole {                                 // 本包可见
+    ADMIN
+    USER
+    GUEST
+}
+
+// ── 构造 func 区：编译器自动生成 ──
+
+// ── 静态 func 区 ──
+func~ (InternalRole) defaultRole() InternalRole {
+    return InternalRole.USER
+}
+
+// ── 实例 func 区（public→private） ──
+func~ (InternalRole r) hasAccess(string resource) bool {
+    if r == InternalRole.ADMIN { return true }
+    if r == InternalRole.GUEST { return false }
+    return false
+}
+
+func-~ (InternalRole r) checkLevel() bool {             // private
+    return r == InternalRole.ADMIN
+}
+
+
+// 1.11e. 枚举常量不可手动构造
+// Color c := Color{int r: 128, int g: 0, int b: 0}    ❌ 编译错误：枚举不可手动构造
+
+
+// ═══ 1.12 泛型（与 Java 一致，无 extends/super，用 : 约束） ═══
+
+// 1.12a. 泛型 struct
+struct Box<T> {
+    T value
+}
+
+func (Box<T>) Box<T>(T v) {
+    Box.value = v
+}
+
+func (Box<T> b) get() T {
+    return b.value
+}
+
+func (Box<T> b) isPresent() bool {
+    return b.value != nil
+}
+
+
+// 1.12b. 多个类型参数
+struct Pair<K, V> {
+    K key
+    V value
+}
+
+func (Pair<K, V>) Pair<K, V>(K k, V v) {
+    Pair.key   = k
+    Pair.value = v
+}
+
+func (Pair<K, V> p) key() K {
+    return p.key
+}
+
+func (Pair<K, V> p) value() V {
+    return p.value
+}
+
+
+// 1.12c. 类型约束（上界，用 : 代替 extends）
+// T 必须实现 Comparable<T>
+interface Comparable<T> {
+    func compareTo(T other) int
+}
+
+struct SortedItem<T : Comparable<T>> {
+    T data
+}
+
+func (SortedItem<T>) SortedItem<T>(T d) {
+    SortedItem.data = d
+}
+
+// 方法中引入新的类型参数
+func<U : Comparable<U>> (SortedItem<T> s) compareTo(U other) int {
+    // ...
+    return 0
+}
+
+
+// 1.12d. 多界约束（用 & 连接）
+struct NumberHolder<T : Comparable<T> & Stringer> {
+    T data
+}
+
+func (NumberHolder<T>) NumberHolder<T>(T d) {
+    NumberHolder.data = d
+}
+
+func (NumberHolder<T> h) describe() string {
+    return h.data.toString()
+}
+
+
+// 1.12e. 通配符
+func printBox(Box<?> box) {                            // 无界通配符
+    print(box.isPresent())
+}
+
+func processNumbers(Box<? : int> box) {                // 上界通配符（? : Type）
+    // box 的元素是 int 或其子类型
+}
+
+// ❌ 不支持 ? super Foo（无 super 关键字）
+
+
+// 1.12f. 泛型顶级函数
+func<T> swap(T a, T b) (T, T) {
+    return b, a
+}
+
+func<T> first(T[] items) T {
+    if items.length() == 0 {
+        return nil
+    }
+    return items[0]
+}
+
+
+// 1.12g. 泛型 interface
+interface Repository<T> {
+    func find(string id) T
+    func save(T entity)
+}
+
+func (Repository<T>) empty() T {
+    return nil
+}
+
+// struct 实现泛型 interface
+struct UserRepo : Repository<Pair<string, int>> {
+    string table
+}
+
+func (UserRepo) UserRepo(string t) {
+    UserRepo.table = t
+}
+
+func (UserRepo r) find(string id) Pair<string, int> {
+    return Pair{K: id, V: 0}
+}
+
+func (UserRepo r) save(Pair<string, int> entity) {
+    // ...
+}
+
+
+// 1.12h. 泛型枚举
+@struct Option<T> {
+    SOME(T)
+    NONE
+
+    T data                                            // NONE 没有数据时值为 nil
+}
+
+func (Option<T> o) unwrap() T {
+    if o == Option.NONE {
+        // 编译检查：调用 unwrap 前应判断
+    }
+    return o.data
+}
+
+
+// ═══ 1.13 包内扩展方法 ═══
+
+// 同一包内可以在其他 .army 文件中为一个 struct（无 &ne 选项、可见性允许）继续添加方法:
+//
+//   // point_extra.army —— 同包内的扩展文件（struct 区中）
+//   func (Point) midpoint(Point other) Point {
+//       return Point{
+//           int x: (Point.x + other.x) / 2,
+//           int y: (Point.y + other.y) / 2,
+//       }
+//   }
+//
+//   func (Point p) normalize() Point {
+//       float d := p.distance()
+//       return Point{int x: p.x / d, int y: p.y / d}
+//   }
+//
+// ❌ ImmutableValue、PackageSecret、FilePrivate 有 &ne 选项，其他文件不可扩展
+
+
+// ====================================================================
+//  §2  interface 区 —— 所有 interface 定义及静态方法在此区连续出现
+//     interface 支持组合（类似 Go），嵌入区在前，func 区在后
+//     default func 最多一行，禁止链式调用，强制委托静态方法
+// ====================================================================
+
+// ═══ 2.0 interface 组合（Go 风格嵌入，分区：嵌入区 → func 区） ═══
+
+interface Reader {
+    func read() (string data, error err)
+}
+
+interface Writer {
+    func write(string data) error
+}
+
+interface Closer {
+    func close() error
+}
+
+// 组合：嵌入多个 interface，写在 func 声明之前
+interface ReadWriter {
+    Reader
+    Writer
+}
+
+func (ReadWriter) copy(Reader r, Writer w) error {      // 静态方法
+    string data, error err := r.read()
+    if err != nil { return err }
+    return w.write(data)
+}
+
+// 多组合 + 自有方法
+interface ReadWriteCloser {
+    Reader
+    Writer
+    Closer
+
+    func flush() error                                   // func 声明在嵌入区之后
+}
+
+func (ReadWriteCloser) pipe(Reader r, Writer w) error {
+    string data, error err := r.read()
+    if err != nil { return err }
+    error werr := w.write(data)
+    return werr
+}
+
+// 泛型组合
+interface Printable<T> {
+    func print(T item)
+}
+
+interface Scannable<T> {
+    func scan() T
+}
+
+interface IO<T> {
+    Printable<T>
+    Scannable<T>
+}
+
+func<T> (IO<T>) echo(T item) T {
+    IO<T>.print(item)
+    return IO<T>.scan()
+}
+
+// struct 实现组合 interface —— 需要实现所有嵌入 interface 的所有方法
+struct FileRW : ReadWriter {
+    string path
+}
+
+func (FileRW) FileRW(string p) {
+    FileRW.path = p
+}
+
+func (FileRW f) read() (string data, error err) {
+    return readFile(f.path), nil
+}
+
+func (FileRW f) write(string data) error {
+    return writeFile(f.path, data)
+}
+
+// FileRW 自动满足 ReadWriter（因为实现了 Reader.write + Writer.read）
+// 无需分别显式 : Reader, : Writer
+
+
+// ═══ 2.1 基础 interface ═══
+// interface 内：func 在最前，返回类型在 ) 右边；无返回则省略
+
+interface Greeter {
+    func greet(string name) string                      // 抽象方法
+}
+
+func (Greeter) hello(string lang) string {              // 静态方法，紧跟 interface
+    if lang == "zh" {
+        return "你好"
+    }
+    return "Hello"
+}
+
+
+// ═══ 2.2 多方法 interface ═══
+
+interface ShapeLike {
+    func area() float                                   // 抽象方法
+    func perimeter() float                              // 抽象方法
+}
+
+
+// ═══ 2.3 default func（单行、无链式调用、强制委托静态方法） ═══
+
+interface Stringer {
+    func toString() string                              // 抽象方法
+
+    default func toUpper() string {                     // ✅ default func：func 最前，单行
+        return Stringer.toUpperImpl(Stringer.toString())
+    }
+}
+
+func (Stringer) toUpperImpl(string s) string {          // 静态方法实现真正逻辑
+    return s.toUpperCase()
+}
+
+func (Stringer) isBlank(string s) bool {                // 更多静态方法
+    return s.length() == 0
+}
+
+// ❌ 错误示范：default func 超过一行
+// interface Bad {
+//     default func process() string {                  // 编译错误：超过一行
+//         string tmp := Stringer.process(this.toString())
+//         return tmp.trim()
+//     }
+// }
+
+// ❌ 错误示范：default func 链式调用
+// interface Bad {
+//     default func process() string {
+//         return this.toString().trim().toUpper()      // 编译错误：链式调用
+//     }
+// }
+
+
+// ═══ 2.4 interface 结合 struct 实现 ═══
+
+// struct 通过实现 interface 的所有抽象方法隐式满足 interface（类似 Go 的鸭子类型）
+
+struct Circle {
+    float radius
+}
+
+func (Circle) Circle(float r) {
+    Circle.radius = r
+}
+
+func (Circle c) area() float {                          // 满足 ShapeLike.area()
+    return Math.PI * c.radius * c.radius
+}
+
+func (Circle c) perimeter() float {                     // 满足 ShapeLike.perimeter()
+    return 2 * Math.PI * c.radius
+}
+
+// Circle 同时实现了 ShapeLike 和之前 struct 区密封 struct 的功能（覆盖 Shape 的 area）
+
+
+// ═══ 2.5 接口静态方法（编写者按可见性 public→private 手写，否则语法错误） ═══
+
+interface Validator {
+    func validate() bool                                // 抽象方法
+
+    default func isValid() bool {                       // 单行 default
+        return Validator.check(Validator.validate())
+    }
+}
+
+func (Validator) check(bool result) bool {              // public 静态
+    return result
+}
+
+func$ (Validator) internalCheck(string key) bool {      // 本包及子包
+    return key.length() > 0
+}
+
+func~ (Validator) packageCheck(string key) bool {       // 本包
+    return key.length() > 3
+}
+
+func- (Validator) fileCheck(string key) bool {          // private
+    return key.length() > 5
+}
+
+
+// ═══ 2.6 可见性 interface ═══
+
+interface# FrameworkService {                           // 基包可见
+    func start()
+
+    default func boot() {                              // default：委托静态方法
+        FrameworkService.doBoot()
+    }
+}
+
+func# (FrameworkService) doBoot() {                     // 静态方法：可见性同 interface
+    print("booting…")
+}
+
+interface$ PackageService {                             // 本包及子包
+    func count() int
+}
+
+interface~ LocalService {                               // 本包可见
+    func name() string
+}
+
+interface- FileService {                                // private（本文件）
+    func handle()
+}
+
+func- (FileService) log(string msg) {
+    print(msg)
+}
+
+
+// ═══ 2.7 多个 struct 实现同一 interface ═══
+
+struct Rectangle {
+    float width
+    float height
+}
+
+func (Rectangle) Rectangle(float w, float h) {
+    Rectangle.width  = w
+    Rectangle.height = h
+}
+
+func (Rectangle r) area() float {                       // 满足 ShapeLike
+    return r.width * r.height
+}
+
+func (Rectangle r) perimeter() float {                  // 满足 ShapeLike
+    return 2 * (r.width + r.height)
+}
+
+struct Square {
+    float side
+}
+
+func (Square) Square(float s) {
+    Square.side = s
+}
+
+func (Square s) area() float {                          // 满足 ShapeLike
+    return s.side * s.side
+}
+
+func (Square s) perimeter() float {                     // 满足 ShapeLike
+    return 4 * s.side
+}
+
+// Circle、Rectangle、Square 都隐式满足 ShapeLike，可赋给 ShapeLike 类型变量
+
+
+// ═══ 2.8 显式实现（C++ 风格，: Interface） ═══
+
+struct Triangle : ShapeLike {                           // : 后跟 interface 名
+    float base
+    float height
+}
+
+func (Triangle) Triangle(float b, float h) {
+    Triangle.base   = b
+    Triangle.height = h
+}
+
+func (Triangle t) area() float {                        // 编译器检查是否真的实现了
+    return 0.5 * t.base * t.height
+}
+
+func (Triangle t) perimeter() float {
+    return t.base + t.height + sqrt(t.base*t.base + t.height*t.height)
+}
+
+// 多个接口
+struct LabeledRect : ShapeLike, Stringer {              // 逗号分隔
+    float  width
+    float  height
+    string label
+}
+
+func (LabeledRect) LabeledRect(float w, float h, string l) {
+    LabeledRect.width  = w
+    LabeledRect.height = h
+    LabeledRect.label  = l
+}
+
+func (LabeledRect r) area() float {
+    return r.width * r.height
+}
+
+func (LabeledRect r) perimeter() float {
+    return 2 * (r.width + r.height)
+}
+
+func (LabeledRect r) toString() string {
+    return r.label
+}
+
+// 显式 ≠ 必须全部显式。一个 struct 可以对部分 interface 显式，其余隐式。
+// Triangle 隐式满足 Stringer（如果有 toString）也可以，不影响 : ShapeLike 的声明。
+
+
+// ═══ 2.9 密封 interface（permits） ═══
+
+interface Drawable permits Circle, Rectangle, Triangle {   // 密封：只有这三个能实现
+    func draw()
+}
+
+// 实现密封 interface 必须显式声明 : Drawable
+struct Circle : Drawable {
+    float radius
+}
+
+func (Circle c) draw() {
+    renderCircle(c.radius)
+}
+
+struct Rectangle : Drawable {
+    float width
+    float height
+}
+
+func (Rectangle r) draw() {
+    renderRect(r.width, r.height)
+}
+
+// struct Square : Drawable { ... }    ❌ 不在 permits 列表中，编译错误
+// struct Square { func draw() ... }   ❌ 隐式实现密封 interface，编译错误
+
+
+// ═══ 2.10 密封 interface + 隐式实现 = 错误 ═══
+
+// ✅ 必须显式：
+//    struct Foo : SealedInterface { ... }
+
+// ❌ 隐式实现密封 interface：编译错误
+//    struct Foo { ... }
+//    func (Foo f) someMethod() ...  // 即使实现了所有方法也不满足 SealedInterface
+
+
+// ====================================================================
+//  §3  全局 func 区 —— 所有顶级函数必须在此区连续出现
+//     控制流语法与 Go 一致：if、for、switch、goto
+//     三元运算符：条件 ? 真值 : 假值（不可换行、不可函数调用）
+//     Lambda/方法引用：类似 Java
+//     函数重载：仅支持参数个数不同
+// ====================================================================
+
+// ═══ 3.0 三元运算符 ═══
+// 只允许简单表达式，不允许函数调用，不允许换行
+
+func maxOf(int a, int b) int {
+    int result := a > b ? a : b                         // ✅ 简单比较
+    return result
+}
+
+func signStr(int x) string {
+    return x >= 0 ? "non-negative" : "negative"         // ✅ 字符串字面量
+}
+
+func statusLabel(bool ok) string {
+    string label := ok ? "done" : "pending"             // ✅ 布尔条件
+    return label
+}
+
+// ❌ 错误示范：
+// int v := check() ? a : b                             // 编译错误：调用了函数 check()
+// int v := a > b
+//              ? processA()                            // 编译错误：换行 + 函数调用
+//              : processB()
+
+// 复杂逻辑必须用 if-else：
+func safeMax(int a, int b) int {
+    if a > b {
+        return computeMax(a)                            // if-else 允许函数调用
+    }
+    return computeMax(b)
+}
+
+
+// ═══ 3.1 if / else ═══
+
+func isPositive(int x) string {
+    if x > 0 {
+        return "positive"
+    } else if x < 0 {
+        return "negative"
+    } else {
+        return "zero"
+    }
+}
+
+// if 支持 init 语句
+func absValue(int x) int {
+    if val := x; val < 0 {
+        return -val
+    }
+    return x
+}
+
+
+// ═══ 3.2 for 循环（唯一循环语句） ═══
+
+func sumRange(int n) int {
+    // 经典三段式
+    int total := 0
+    for int i := 0; i < n; i = i + 1 {
+        total = total + i
+    }
+    return total
+}
+
+func countDown(int n) {
+    // 条件循环（类似 while）
+    for n > 0 {
+        print(n)
+        n = n - 1
+    }
+}
+
+func serveForever() {
+    // 无限循环
+    for {
+        handleRequest()
+    }
+}
+
+func printItems(string[] items) {
+    // range 遍历
+    for index, value := range items {
+        print(index, value)
+    }
+}
+
+func printValues(string[] items) {
+    // range 只取值
+    for _, value := range items {
+        print(value)
+    }
+}
+
+
+// ═══ 3.3 switch ═══
+
+func grade(int score) string {
+    switch score {
+        case 90, 100:
+            return "A"
+        case 80, 89:
+            return "B"
+        case 70, 79:
+            return "C"
+        default:
+            return "D"
+    }
+}
+
+// switch 支持 init 语句
+func evaluate(int x) string {
+    switch v := x * 2; v {
+        case 10:
+            return "ten"
+        case 20:
+            return "twenty"
+        default:
+            return "other"
+    }
+}
+
+// switch 无表达式 = 替代 if-else 链
+func describe(int n) string {
+    switch {
+        case n < 0:
+            return "negative"
+        case n == 0:
+            return "zero"
+        default:
+            return "positive"
+    }
+}
+
+// switch 对枚举穷举检查
+func weekendLabel(Day d) string {
+    switch d {
+        case Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY:
+            return "workday"
+        case Day.SATURDAY, Day.SUNDAY:
+            return "weekend"
+        // ❌ 如果 Day 有 7 个常量但只写了 2 个 case → 编译警告
+    }
+}
+
+
+// ═══ 3.4 goto ═══
+
+func findFirst(int[] arr, int target) int {
+    int index := -1
+    for int i := 0; i < arr.length(); i = i + 1 {
+        if arr[i] == target {
+            index = i
+            goto done
+        }
+    }
+    done:
+    return index
+}
+
+
+// ═══ 3.5 Lambda 表达式（类似 Java） ═══
+// 目标类型：仅含一个抽象方法的 interface（SAM interface）
+
+interface Calculator {
+    func compute(int a, int b) int
+}
+
+interface StringFilter {
+    func test(string s) bool
+}
+
+interface Supplier<T> {
+    func get() T
+}
+
+interface Consumer<T> {
+    func accept(T item)
+}
+
+// 3.5a. 单行 Lambda（隐式返回）
+func lambdaDemo() {
+    // 类型在左，推断
+    Calculator add := (int a, int b) -> a + b
+
+    // 参数类型推断
+    Calculator mul := (a, b) -> a * b
+
+    // 单参数省略括号
+    StringFilter notEmpty := s -> s.length() > 0
+
+    // 无参数
+    Supplier<int> five := () -> 5
+}
+
+// 3.5b. 多行 Lambda（需显式 return）
+func lambdaBlock() {
+    Calculator max := (a, b) -> {
+        if a > b {
+            return a
+        }
+        return b
+    }
+
+    Consumer<string> logger := (msg) -> {
+        print("[INFO] ")
+        print(msg)
+    }
+}
+
+// 3.5c. Lambda 作为参数
+func processNumbers(int[] nums, Calculator op) int {
+    int result := 0
+    for _, n := range nums {
+        result = op.compute(result, n)
+    }
+    return result
+}
+
+func callWithLambda(int[] nums) int {
+    // 直接传入 Lambda
+    int sum := processNumbers(nums, (a, b) -> a + b)
+    return sum
+}
+
+
+// ═══ 3.5d 匿名函数（Go 风格 func 字面量） ═══
+// 与 Lambda 互补：Lambda 用于 SAM interface，匿名函数是独立的一等公民
+// 匿名函数可以赋值给变量、作为参数、作为返回值、立即调用
+
+func anonymousFuncDemo() {
+    // 匿名函数赋值给变量（类型推断）
+    add := func(int a, int b) int {
+        return a + b
+    }
+
+    int result := add(3, 5)                             // 8
+
+    // 多行匿名函数
+    max := func(int a, int b) int {
+        if a > b {
+            return a
+        }
+        return b
+    }
+
+    // 匿名函数作为参数（内联）
+    processNumbers(nums, func(a int, b int) int {
+        return a * b
+    })
+
+    // 立即调用（IIFE）
+    int doubled := func(int x) int {
+        return x * 2
+    }(21)                                               // doubled = 42
+
+    // 闭包 —— 捕获外部变量
+    int base := 10
+    adder := func(int x) int {
+        return base + x                                 // 捕获 base
+    }
+    int v := adder(5)                                   // 15
+}
+
+
+// ═══ 3.6 方法引用（类似 Java） ═══
+
+// 3.6a. 静态方法引用：Type::staticMethod
+func multiply(int a, int b) int {
+    return a * b
+}
+
+func methodRefDemo() {
+    Calculator mul := Math::multiply                      // 静态方法引用
+    int result := mul.compute(3, 4)                       // 12
+}
+
+// 3.6b. 特定类型实例方法引用：Type::instanceMethod
+func filterDemo(string[] items, StringFilter f) string[] {
+    // ...
+    return items
+}
+
+func methodRefType() {
+    // String::length 引用 String 的实例方法
+    // 等价于 (s) -> s.length()
+    StringFilter long := String::isEmpty
+    // 第一个参数成为 receiver
+}
+
+// 3.6c. 实例方法引用：instance::method
+func (Calculator c) applyAndLog(int a, int b) int {
+    // this::compute 等价于 (a, b) -> this.compute(a, b)
+    Calculator self := this::compute                     // 当前实例方法引用
+    int result := self.compute(a, b)
+    print(result)
+    return result
+}
+
+// 3.6d. 构造方法引用：Type::new
+func buildBox() {
+    // 构造函数引用（需支持 SAM interface 的返回类型匹配）
+    // Supplier<Box<int>> boxFactory := Box<int>::new
+}
+
+// 3.6e. 重载函数引用 — 用 #n 消除歧义（n = 参数个数）
+// 函数重载只支持参数个数不同，所以 #n 可以唯一确定目标函数
+
+func overloadedRefDemo() {
+    // 不重载时无需 #n
+    Calculator mul := Math::multiply                      // 唯一，无歧义
+
+    // 重载函数必须用 #n 指定参数个数
+    Calculator inc1 := Math::increment#1                  // increment(int a)
+    Calculator inc2 := Math::increment#2                  // increment(int a, int delta)
+
+    // ❌ 省略 #n 时编译错误
+    // Calculator bad := Math::increment                   // 编译错误：increment 有多个重载，须用 #n
+}
+
+
+// ═══ 3.7 函数重载（仅支持参数个数不同） ═══
+
+// ✅ 参数个数不同 → 合法重载
+func increment(int a) int {
+    return a + 1
+}
+
+func increment(int a, int delta) int {
+    return a + delta
+}
+
+func increment(int a, int delta, string log) (int result, string msg) {
+    result = a + delta
+    msg = log
+    return
+}
+
+// ❌ 参数个数相同但类型不同 → 编译错误
+// func increment(string a) string { ... }               // 编译错误：参数个数=1，与 increment(int) 冲突
+// func increment(int a, string b) int { ... }           // 编译错误：参数个数=2，与 increment(int, int) 冲突
+
+// ❌ 返回值不同但参数个数相同 → 也是错误
+// func increment(int a) string { ... }                  // 编译错误：参数个数=1，已存在
+
+
+// ═══ 原有顶级函数 ═══
+
+func divide(int a, int b) (int quotient, int remainder) {
+    quotient  = a / b
+    remainder = a % b
+    return
+}
+
+func swap(int x, int y) (int, int) {
+    return y, x
+}
+
+func main() {
+    // 变量声明
+    int x := 10
+    int y = 20
+    Point p := Point{int x: x, int y: y}
+
+    // 多返回值接收
+    int a, int b := swap(x, y)
+    float dist := p.distance()
+
+    // 构造
+    Circle c := Circle{float radius: 5.0, string color: "red"}
+    float area := c.area()
+
+    // static 常量访问
+    float pi := Math.PI
+
+    // decimal 使用
+    Price food := Price{decimal amount: 12.99, string currency: "CNY"}
+    decimal usd := food.toUSD(0.14)
+
+    // ne 选项的 struct
+    ImmutableValue v := ImmutableValue{int v: 50}
+    int val := v.get()
+
+    // ── 泛型使用 ──
+
+    // 泛型 struct
+    Box<int> intBox := Box{Box<int>.value: 42}
+    int boxed := intBox.get()
+
+    Box<string> strBox := Box{Box<string>.value: "hello"}
+    string unboxed := strBox.get()
+
+    // 泛型函数
+    int firstNum := first([1, 2, 3])
+    int a, int b := swap(10, 20)
+
+    // 通配符
+    printBox(intBox)                                    // Box<?> 接受任意 Box
+
+    // 泛型 interface
+    UserRepo repo := UserRepo{string table: "users"}
+    Pair<string, int> found := repo.find("42")
+
+    // ── Lambda 使用 ──
+
+    // 单行 Lambda
+    Calculator add := (a, b) -> a + b
+    int sum := add.compute(3, 5)                        // 8
+
+    // 类型推断
+    Calculator mul := (a, b) -> a * b
+
+    // Lambda 作为参数
+    int total := processNumbers([1, 2, 3], (a, b) -> a + b)  // 6
+
+    // 方法引用
+    Calculator mult := Math::multiply
+    int prod := mult.compute(4, 5)                      // 20
+
+    // this 方法引用
+    Calculator self := this::compute
+
+    // ── 函数重载使用 ──
+
+    int v1 := increment(5)                              // 6（参数个数=1）
+    int v2 := increment(5, 3)                           // 8（参数个数=2）
+    int v3, string msg := increment(5, 3, "done")       // 8, "done"（参数个数=3）
+
+    // ── 枚举使用 ──
+
+    // 简单枚举
+    Day today := Day.MONDAY
+    bool isWeekend := today.isWeekend()
+    string dayLabel := today.label()                    // "MONDAY"（name()）
+
+    // 带数据枚举
+    Color red := Color.RED
+    string hexColor := red.hex()                        // "#FF0000"
+    float bright := red.brightness()
+
+    int r := red.r                                      // 255（直接访问字段）
+    int g := red.g                                      // 0
+
+    // 编译器生成方法
+    Day[] days := Day.values()                          // 所有常量数组
+    Day parsed := Day.valueOf("FRIDAY")                 // 字符串转枚举
+    int ord := Color.GREEN.ordinal()                    // 1
+
+    // HttpStatus
+    HttpStatus status := HttpStatus.OK
+    bool ok := status.isSuccess()                       // true
+
+    // switch 穷举检查
+    // switch t := today {
+    //     case MONDAY:  print("start")
+    //     case FRIDAY:  print("end")
+    //     // ❌ 缺 TUESDAY~THURSDAY SATURDAY SUNDAY → 编译警告/错误
+    // }
+
+    // ── interface 使用 ──
+
+    // 隐式实现（鸭子类型）：struct 满足 interface 无需声明
+    ShapeLike s1 := c                                    // Circle 满足 ShapeLike
+    float circleArea := s1.area()
+
+    Rectangle rect := Rectangle{float width: 4.0, float height: 5.0}
+    ShapeLike s2 := rect                                 // Rectangle 也满足 ShapeLike
+    float rectArea := s2.area()
+
+    // 显式实现：: Interface 声明
+    Triangle tri := Triangle{float base: 3.0, float height: 4.0}
+    ShapeLike s3 := tri                                  // 显式声明过，编译器保证
+
+    LabeledRect lr := LabeledRect{float width: 2.0, float height: 3.0, string label: "box"}
+    Stringer str := lr                                   // 满足多个接口
+
+    // 密封 interface：必须显式 : Drawable
+    Drawable d1 := c                                     // Circle : Drawable，密封 permits 检查通过
+    d1.draw()
+
+    // default func：调用单行 default 方法
+    string upper := lr.toString().toUpper()              // 来自 Stringer
+
+    // interface 静态方法调用
+    string hello := Greeter.hello("zh")
+}
+
+
+// ====================================================================
+//  §4  全局变量区 —— 所有顶级变量必须在此区连续出现
+// ====================================================================
+// （暂无）

@@ -1,0 +1,7 @@
+[package]
+name = "army-lang"
+version = "0.1.0"
+edition = "2021"
+description = "A statically-typed systems language with Go-like structs, anonymous composition, static/final, and permits-based sealed structs."
+
+[dependencies]
