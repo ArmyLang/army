@@ -56,7 +56,10 @@ string       decimal
 ```
 
 > **注意**：
-> - Army 无 `const` 关键字，常量由 `static final` 组合表达。
+> - Army 无 `const` 关键字，常量由 `final` 表达（`final` 的字段/变量不可重新赋值）。`static` 与 `final` 正交：
+>   - `final` 实例字段 — 实例常量（每个实例可不同值，但构造后不可变）
+>   - `static final` — 类级常量（所有实例共享）
+>   - `final` 局部变量 — 局部不可变变量
 > - Army 无 `fallthrough` 关键字，switch 各 case 自动终止。
 > - 类型名是硬关键字，不可被 shadow（与 Go 不同，Go 中类型名是预声明标识符）。
 
@@ -116,7 +119,42 @@ com.qinarmy.demo
 
 ## 4. 词法元素
 
-### 4.1 声明风格
+### 4.1 大括号风格
+
+Army 遵循 Go 的大括号规则：**左大括号 `{` 必须与声明/语句在同一行**，不允许单独换行（C 风格非法）。
+
+```army
+// ✅ Go 风格 — { 与声明同行
+if x > 0 {
+    return x
+}
+
+func maxOf(int a, int b) int {
+    return a > b ? a : b
+}
+
+struct Point {
+    int x
+    int y
+}
+
+for int i := 0; i < n; i = i + 1 {
+    print(i)
+}
+
+// ❌ C 风格 — { 另起一行，编译错误
+if x > 0
+{
+    return x
+}
+
+func maxOf(int a, int b) int
+{
+    return a > b ? a : b
+}
+```
+
+### 4.2 声明风格
 
 类型在左，变量在右（C/Java 系）：
 
@@ -128,7 +166,7 @@ string s := "hello"
 bool b := true
 ```
 
-### 4.2 可见性（6 种）
+### 4.3 可见性（6 种）
 
 | 可见性     | 记号           | 说明                 |
 |------------|----------------|----------------------|
@@ -495,8 +533,19 @@ string data, error err := r.read()
 ### 9.1 定义
 
 ```
-struct 名称 [可见性][&选项] [permits A, B] [: Interface1, Interface2] {
+struct 名称 [可见性][&e] [permits A, B] [: Interface1, Interface2] {
     [static] [final] 类型 字段名 [= 初值]
+}
+```
+
+初值可以是字面量，也**可以调用静态函数**：
+
+```army
+struct Config {
+    static final string DEFAULT_HOST = "localhost"            // 字面量
+    static final int    TIMEOUT      = computeTimeout()       // 静态函数调用
+    string              host         = getDefaultHost()       // 实例字段初值也可调用静态函数
+    int                 port         = 8080
 }
 ```
 
@@ -506,12 +555,12 @@ struct 名称 [可见性][&选项] [permits A, B] [: Interface1, Interface2] {
 - **字段必须手动排序**：静态字段区在前，实例字段区在后。各区内部按 public→private 顺序排列。否则语法错误。
 - 支持匿名组合：直接写另一个 struct 类型名，无字段名。
 
-### 9.2 选项 `&ne`
+### 9.2 选项 `&e`
 
-`&ne`（no-extension）禁止本文件外为 struct 增加 func：
+`&e` 禁止本文件外为 struct 增加 func：
 
 ```army
-struct&ne ImmutableValue {
+struct&e ImmutableValue {
     static final int MAX = 100
     int              value
 }
@@ -521,8 +570,8 @@ struct&ne ImmutableValue {
 可见性与选项可组合：
 
 ```army
-struct~&ne PackageSecret { string key }   // 本包可见 + 禁止外部扩展
-struct-&ne FilePrivate { int id }         // 本文件可见 + 禁止外部扩展
+struct~&e PackageSecret { string key }   // 本包可见 + 禁止外部扩展
+struct-&e FilePrivate { int id }         // 本文件可见 + 禁止外部扩展
 ```
 
 ### 9.3 匿名组合
@@ -640,9 +689,31 @@ Receiver 语法：
 - 编译器自动生成静态方法：`values()`, `valueOf(string)`, 实例方法：`name()`, `ordinal()`。
 - 方法分区规则与普通 struct 完全一致（构造→静态→实例，public→private）。
 
-### 9.8 包内扩展方法
+### 9.8 包内扩展
 
-同一包内，可在其他 `.army` 文件中为一个 struct（无 `&ne` 选项、可见性允许）继续添加方法：
+同一包内，可在其他 `.army` 文件中为一个 struct（无 `&e` 选项、可见性允许）继续扩展。扩展按区域分两种：
+
+#### 9.8.1 扩展静态字段
+
+使用 `&StructName { ... }` 语法为 struct 增加静态字段。**只允许静态字段，实例字段不可扩展**：
+
+```army
+// counter_extra.army — 同包内扩展文件
+
+&Counter {                              // 扩展 Counter 的静态字段
+    static int maxValue = 1000
+    static string description = "counter"
+}
+
+// ❌ 不可扩展实例字段
+// &Counter { int extra }               // 编译错误：实例字段不可扩展
+```
+
+静态字段扩展遵循与 struct 定义内部相同的排序规则（public→private）。
+
+#### 9.8.2 扩展方法
+
+同一包内，可为 struct 继续添加方法（与 struct 本文件中的方法分区规则一致）：
 
 ```army
 // point_extra.army — 同包内的扩展文件
@@ -651,7 +722,7 @@ func (Point) midpoint(Point other) Point {
 }
 ```
 
-`&ne` 选项的 struct 不可被外部扩展。
+`&e` 选项的 struct 不可被外部扩展（静态字段和方法均不可）。
 
 ---
 
