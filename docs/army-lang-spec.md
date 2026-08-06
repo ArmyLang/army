@@ -31,7 +31,7 @@ Army 是一门静态类型的编译型语言，融合了 C/Java 系的声明风�
 
 ## 2. 记号
 
-### 2.1 硬关键字（43 个）
+### 2.1 硬关键字（45 个）
 
 #### 基本关键字（27 个）
 
@@ -43,13 +43,14 @@ static       final        if           range        type
 continue     for          import       return       var
 ```
 
-#### 类型关键字（16 个）
+#### 类型关键字（18 个）
 
 ```
 byte         int2         int4         int8
 ubyte        uint2        uint4        uint8
 int          uint
 float4       float8
+complex8     complex16
 uintptr
 rune
 string       decimal
@@ -60,8 +61,9 @@ string       decimal
 >   - `final` 实例字段 — 实例常量（每个实例可不同值，但构造后不可变）
 >   - `static final` — 类级常量（所有实例共享）
 >   - `final` 局部变量 — 局部不可变变量
-> - Army 无 `fallthrough` 关键字，switch 各 case 自动终止。
+> - Army 无 `fallthrough` 关键字，switch 各 case 默认穿透（C 风格），必须显式 `break`。
 > - 类型名是硬关键字，不可被 shadow（与 Go 不同，Go 中类型名是预声明标识符）。
+> - `bool`、`error`、`any` 是预声明标识符（非关键字），可被 shadow（不推荐）。
 
 ### 2.2 上下文关键字（1 个）
 
@@ -91,6 +93,54 @@ string       decimal
 // 单行注释
 /* 多行注释 */
 ```
+
+### 2.6 文档注释
+
+Army 使用 `///` 开头的**文档注释**，紧随被注释的声明之前。与 Java 25 一致，文档注释使用 **Markdown** 格式，**禁止 HTML 标签**：
+
+```army
+/// Returns the larger of two values.
+///
+/// # Parameters
+/// - `a` — the first value
+/// - `b` — the second value
+///
+/// # Returns
+/// The greater of `a` and `b`.
+///
+/// # Examples
+/// ```
+/// int v := maxOf(3, 7)   // v == 7
+/// ```
+func maxOf(int a, int b) int {
+    return a > b ? a : b
+}
+
+/// A thread-safe counter with an upper bound.
+///
+/// # Fields
+/// - `count` — current value
+/// - `limit` — maximum allowed value, defaults to **1024**
+struct Counter {
+    int count
+    int limit = 1024
+}
+
+/// Represents a drawable shape.
+///
+/// Implementing types must provide
+/// a `draw()` method.
+interface Drawable {
+    func draw()
+}
+```
+
+规则：
+
+- `///` 必须紧跟被注释的声明（`func`、`struct`、`interface` 等）
+- 使用 Markdown 格式：标题 `#`、代码块 `` ``` ``、列表 `-`、加粗 `**`、内联代码 `` ` ``
+- **禁止 HTML 标签**（`<b>`、`<code>` 等一律非法）
+- 编译器可提取文档注释生成 API 文档
 
 ---
 
@@ -154,7 +204,37 @@ func maxOf(int a, int b) int
 }
 ```
 
-### 4.2 声明风格
+### 4.2 缩进
+
+Army 使用 **4 个空格** 缩进，**禁止 Tab 字符**。编辑器应将 Tab 键映射为输入 4 个空格。
+
+```army
+// ✅ 正确——4 空格缩进
+func maxOf(int a, int b) int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// ❌ 错误——Tab 字符
+func maxOf(int a, int b) int {
+→   if a > b {          // Tab 字符非法
+→   →   return a
+→   }
+    return b
+}
+
+// ❌ 错误——2 空格缩进
+func maxOf(int a, int b) int {
+  if a > b {            // 2 空格非法
+    return a
+  }
+  return b
+}
+```
+
+### 4.3 声明风格
 
 类型在左，变量在右（C/Java 系）：
 
@@ -166,7 +246,123 @@ string s := "hello"
 bool b := true
 ```
 
-### 4.3 可见性（6 种）
+#### 4.3.1 类型与变量间的空格
+
+**类型与变量名之间有且仅有一个空格**，多或少的空格均编译错误：
+
+```army
+// ✅ 正确——类型与变量间恰好 1 个空格
+int x := 10
+string name := "army"
+
+// ❌ 错误——多余空格
+int  x := 10        // 两个空格，编译错误
+string   s := "hi"  // 三个空格，编译错误
+
+// ❌ 错误——缺少空格
+intx := 10          // 无空格，intx 被当作标识符而非类型
+```
+
+此规则同样适用于函数参数、struct 字段、返回值类型声明等所有"类型 + 名称"出现的位置。
+
+#### 4.3.2 函数参数列表的格式
+
+##### 括号
+
+左括号 `(` 左右均**无空格**，右括号 `)` 左侧**无空格**。若参数换行，左括号后可直接换行，但参数列表内**不允许有空行**：
+
+```army
+// ✅ 正确——单行：括号紧贴名称
+func add(int a, int b) int {
+    return a + b
+}
+
+// ✅ 正确——换行：左括号后直接换行，无空行
+func configure(
+    string host,
+    int port,
+    bool tls,
+    int timeout
+) Config {
+    // ...
+}
+
+// ❌ 错误——左括号左侧有空格
+func add (int a, int b) int { ... }         // "add (" 非法
+
+// ❌ 错误——左括号右侧有空格
+func add( int a, int b) int { ... }         // "( " 非法
+
+// ❌ 错误——右括号左侧有空格
+func add(int a, int b ) int { ... }         // "b )" 非法
+
+// ❌ 错误——参数列表内出现空行
+func configure(
+    string host,
+    int port,
+
+    bool tls,                               // 空行前移——编译错误
+    int timeout
+) Config { ... }
+
+// ✅ 正确——调用时也同样规则
+send(host, port, path, timeout)
+send(
+    host,
+    port,
+    path,
+    timeout
+)
+)
+```
+
+##### 逗号
+
+参数列表中，逗号**左右各有且仅有一个空格**。换行时**只能在逗号之后换行**，不可在逗号之前换行：
+
+```army
+// ✅ 正确——单行：逗号前后各 1 个空格
+func add(int a, int b) int {
+    return a + b
+}
+
+// ✅ 正确——换行：逗号在行尾（逗号后换行）
+func send(string host, int port,
+          string path, int timeout) {
+    connect(host, port)
+}
+
+// ❌ 错误——逗号前换行（逗号在行首）
+func send(string host , int port
+    , string path , int timeout) { ... }
+
+// ❌ 错误——逗号前缺少空格
+func add(int a,int b) int { ... }
+
+// ❌ 错误——逗号后缺少空格
+func add(int a,int b) int { ... }
+
+// ❌ 错误——逗号前多余空格
+func add(int a  , int b) int { ... }
+
+// ❌ 错误——逗号后多余空格
+func add(int a,  int b) int { ... }
+```
+
+此规则同样适用于函数调用实参列表、多返回值声明（如 `func foo() (int, string)`）和多字段 struct 定义。
+
+#### 4.3.3 设计动机
+
+Army 将空格和逗号格式提升为**编译期强制规则**而非风格建议，目的与 Go 的 `gofmt` 一致：
+
+- **消除风格不一致**：不同开发者不会写出不同的空格习惯
+- **减少 git diff 噪音**：提交历史中不会出现无意义的格式改动，`git blame` 指向真正修改代码的人
+- **Code Review 更高效**：reviewer 不必纠结于格式问题，编译器已经保证了统一
+- **大型项目协作友好**：任何人不需记忆风格指南，编译器直接拒绝不符合规范的代码
+
+> **原则：能在编译期杜绝的差异，就不要留给 lint 工具或 code review 去反复拉扯。**
+
+### 4.4 可见性（6 种）
 
 | 可见性     | 记号           | 说明                 |
 |------------|----------------|----------------------|
@@ -215,13 +411,16 @@ struct _Person {
 | `uint8`   | 8 字节无符号整数       |
 | `uint`    | 平台相关无符号整数     |
 | `uintptr` | 足够存指针的无符号整数 |
-| `float4`  | 4 字节浮点             |
-| `float8`  | 8 字节浮点             |
+| `float4`   | 4 字节浮点             |
+| `float8`   | 8 字节浮点             |
+| `complex8` | 8 字节复数（real: float4, imag: float4） |
+| `complex16` | 16 字节复数（real: float8, imag: float8） |
 | `rune`    | Unicode 码点           |
 | `string`  | 不可变字符串           |
 | `decimal` | 精确小数               |
 | `bool`    | 布尔值                 |
 | `error`   | 错误类型               |
+| `any`     | 空接口，可表示一切值     |
 
 > 所有类型名是硬关键字，不能被 shadow。
 
@@ -398,6 +597,25 @@ Calculator ref := Math::multiply
 
 无需手动包装或显式声明实现关系。编译器自动将函数值转换为匹配的 SAM interface 值。
 
+函数类型**可以显式实现 interface**：
+
+```army
+interface Handler {
+    func process(string data) bool
+}
+
+// 全局 func 显式实现 Handler
+func Handler process(string data) bool {
+    return data.length() > 0
+}
+```
+
+语法：`func InterfaceName funcName(参数) [返回类型] { 块 }`，编译器检查函数是否真正实现了 interface 的所有方法。
+
+规则：
+- 普通（非密封）interface：函数类型可以隐式实现（默认），也可以显式实现
+- **密封 interface：函数类型必须显式实现**，隐式实现不被接受
+
 ---
 
 ## 7. 语句
@@ -452,45 +670,107 @@ for _, value := range items {
 
 ### 7.3 switch
 
+Army 的 switch 与 C 一致：**case 默认穿透，必须显式 `break` 终止**。Army 无 `fallthrough` 关键字（穿透已是默认行为）。
+
 ```army
 // 基本 switch
 switch score {
     case 90, 100:
-        return "A"
+        grade := "A"
+        break
     case 80, 89:
-        return "B"
+        grade := "B"
+        break
     default:
-        return "D"
+        grade := "D"
+        break
+}
+
+// 每个 case 最多 4 个选项
+switch day {
+    case 1, 2, 3, 4:
+        type := "weekday"
+        break
+    case 5, 9, 13, 21:
+        type := "special"
+        break
+}
+
+// ❌ 超过 4 个选项——编译错误，必须拆分
+// case 1, 2, 3, 4, 5:    // 错误：case 最多 4 个选项
+
+// 有意穿透：省略 break 即可
+switch char {
+    case 'a':
+    case 'e':
+    case 'i':
+    case 'o':
+    case 'u':
+        type := "vowel"
+        break
+    default:
+        type := "consonant"
+        break
 }
 
 // switch 支持 init 语句
 switch v := x * 2; v {
     case 10:
-        return "ten"
+        result := "ten"
+        break
     default:
-        return "other"
+        result := "other"
+        break
 }
 
 // 无表达式 switch（替代 if-else 链）
 switch {
     case n < 0:
-        return "negative"
+        result := "negative"
+        break
     case n == 0:
-        return "zero"
+        result := "zero"
+        break
     default:
-        return "positive"
+        result := "positive"
+        break
 }
 ```
 
 规则：
 
-- 无 `fallthrough` 关键字，每个 case 自动终止（无需 `break`）
-- 显式 `break` 可用于提前跳出 switch
+- 无 `fallthrough` 关键字——**穿透是默认行为**（与 C 一致），靠 `break` 终止
+- 每个需终止的 case 必须显式写 `break`；省略则穿透到下一个 case
+- 每个 `case` 最多支持 **4 个选项**（逗号分隔），超过 4 个的匹配必须拆分到多个 case
+- **`default` 必须出现在所有 `case` 之后**，不可插在中间
 - 对枚举进行穷举检查（缺 case 产生编译警告）
+- **严禁在 `switch` 内出现 `return` 语句**——编译错误。switch 只能通过 `break` 终止 case，通过 `goto` 跳出 switch 整体。返回值必须在 switch 之后处理
+
+// ❌ default 插在 case 中间——编译错误
+// switch v {
+//     case 1:
+//         break
+//     default:
+//         break
+//     case 2:
+//         break
+// }
 
 ### 7.4 goto
 
+Army 的 `goto` 规则与 Go 完全一致：
+
+**允许：**
+- 跳转到同一函数内的任意标签
+- 向外跳出代码块（如跳出 `for`、`switch`）
+
+**限制：**
+- **禁止跳过变量声明**——`goto` 不能跳过带 `:=` 或 `=` 的变量声明语句，确保变量始终被正确初始化
+- **禁止跳入新的代码块**——不能从外部跳入 `if`、`for`、`switch` 的大括号内部
+- 标签与其跳转目标必须在同一函数内
+
 ```army
+// ✅ 基本用法：跳出循环
 func findFirst(int[] arr, int target) int {
     int index := -1
     for int i := 0; i < arr.length(); i = i + 1 {
@@ -502,6 +782,35 @@ func findFirst(int[] arr, int target) int {
     done:
     return index
 }
+
+// ✅ 跳出 switch（结合禁止 return 的规则）
+func classify(int n) string {
+    string result
+    switch n {
+        case 1:
+            result = "one"
+            goto out
+        case 2:
+            result = "two"
+            goto out
+        default:
+            result = "other"
+            goto out
+    }
+    out:
+    return result
+}
+
+// ❌ 跳过变量声明——编译错误
+// goto skip
+// int x := 10   // 被跳过
+// skip:
+
+// ❌ 跳入代码块——编译错误
+// goto inside
+// if condition {
+//     inside:
+// }
 ```
 
 ---
@@ -620,6 +929,10 @@ struct Circle {                                       // 在 permits 列表中
 
 // struct Square { Shape; float4 side }   ❌ 不在 permits 列表中
 ```
+
+规则：
+- **`permits` 列表只能出现基包内的 struct、interface、全局 func**，不允许引用外部包的类型或函数
+- 基包外的类型即使同包也不得出现在 permits 中，编译器直接报错
 
 ### 9.6 Struct 方法（写在 struct 外部，必须紧跟）
 
@@ -808,7 +1121,9 @@ interface Drawable permits Circle, Rectangle, Triangle {
 }
 ```
 
-密封 interface 的实现必须显式声明 `: Drawable`，隐式实现不被接受。
+规则：
+- 密封 interface 的实现必须显式声明 `: Drawable`，隐式实现不被接受
+- **`permits` 列表只能出现基包内的 struct、interface、全局 func**，不允许引用外部包的类型或函数
 
 ### 10.5 Interface 静态方法（写在 interface 外部，必须紧跟）
 
@@ -849,6 +1164,31 @@ struct Triangle : ShapeLike {
 
 - 密封 interface 必须显式实现。
 - 一个 struct 可以对部分 interface 显式，其余隐式。
+- **函数类型也可以显式实现 interface**，语法：`func InterfaceName funcName(参数) [返回类型] { 块 }`。编译器检查是否真正实现了 interface 的所有方法。密封 interface 必须显式实现。
+
+### 10.7 空接口与 Any
+
+空接口即不含任何方法声明的 interface：
+
+```army
+interface Container {
+    // 没有任何方法——空接口
+}
+```
+
+Army 内置一个预声明的空接口 `any`（定义于 `army.lang` 包），它可以表示一切值：类型、struct、interface、func 均可赋值给 `any`。
+
+```army
+any x := 42                        // int
+x = "hello"                        // string
+x := Circle{float4 radius: 5.0}    // struct
+x := func(int a) int { return a }  // func
+```
+
+规则：
+- 允许声明自定义空接口
+- **空接口和密封接口一样只能显式实现**，隐式实现不被接受
+- `any` 是预声明标识符（非关键字），可被 shadow（不推荐）
 
 ---
 
@@ -877,6 +1217,30 @@ func divide(int a, int b) (int quotient, int remainder) {
 func main() {
     print("hello")
 }
+```
+
+#### 11.1.1 `func` 关键字格式
+
+全局函数左侧**不允许有空格**（顶格书写），`func` 与函数名之间**有且仅有一个空格**，且**不可换行**：
+
+```army
+// ✅ 正确——全局 func 顶格，func 与名称间恰好 1 个空格
+func add(int a, int b) int {
+    return a + b
+}
+
+// ❌ 错误——全局 func 左侧有空格
+    func add(int a, int b) int { ... }      // 缩进非法
+
+// ❌ 错误——func 与函数名之间多余空格
+func  add(int a, int b) int { ... }         // 两个空格
+
+// ❌ 错误——func 与函数名之间无空格
+funcadd(int a, int b) int { ... }           // funcadd 视为标识符
+
+// ❌ 错误——func 与函数名之间换行
+func
+add(int a, int b) int { ... }               // 换行非法
 ```
 
 ### 11.2 参数默认值
@@ -994,10 +1358,19 @@ com.qinarmy.demo
 
 ### 13.2 Import
 
+import 路径**不使用引号**，只能包含**小写英文、下划线、数字**三种字符，`import` 关键字与路径之间**有且仅有一个空格**。
+
 ```army
-import "com.qinarmy.demo.util"
-import "com.qinarmy.demo.models"
+import com.qinarmy.demo.util
+import com.qinarmy.demo.models
+import com.qinarmy.demo.sub_package1
+import com.qinarmy.demo.v2
 ```
+
+规则：
+- 路径不允许 `""` 引号包裹
+- 路径仅允许字符集：`[a-z0-9_]` 及 `.` 分隔符
+- `import` 与路径之间有且仅有一个空格：`import com.xxx`（✅）、`import  com.xxx`（❌）、`import"com.xxx"`（❌）
 
 ---
 
