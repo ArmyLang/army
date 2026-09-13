@@ -1048,8 +1048,8 @@ interface 名称 [可见性] [permits A, B] {
     InterfaceA                           // 嵌入组合区
     InterfaceB
 
-    func 方法名(参数) [返回类型]          // 抽象方法（func 区）
-    default func 方法名(参数) [返回类型] { 单行代码 }
+    func 方法名(参数) [返回类型]                               // 抽象方法（非默认）：无 receiver、无函数体
+    func (接口名 变量名) 方法名(参数) [返回类型] { 单行代码 }     // 默认方法：有函数体 + 带 receiver（类型 = 当前 interface）
 }
 ```
 
@@ -1059,6 +1059,9 @@ interface 名称 [可见性] [permits A, B] {
 - 所有方法均为 public。
 - 嵌入组合类似 Go 的 interface 组合：嵌入的 interface 的所有方法被合并到当前 interface。
 - interface 无 `: InterfaceList` 语法，通过匿名嵌入实现组合。
+- func 区中不使用 `default` 关键字。默认方法（有实现）与非默认方法（抽象） **靠两个特征同时区分**： **有函数体 且 有
+  receiver（类型 = 当前 interface）**。receiver 与函数体必须成对出现，只满足其一即编译错误。
+- **func 区内声明顺序强制**：先声明全部非默认方法（抽象），再声明默认方法。默认方法出现在任一非默认方法之前，即语法错误。
 
 ### 10.2 嵌入组合（Go 风格）
 
@@ -1091,14 +1094,25 @@ interface ReadWriteCloser {
 }
 ```
 
-### 10.3 Default 方法
+### 10.3 默认方法
+
+interface 的默认方法 **不使用 `default` 关键字**。默认方法与非默认方法 **通过两点区分**，两点必须同时成立：
+
+> **默认方法 ⇔ 有函数体（`{ ... }`）且 有 receiver（`(接口名 变量名)`）。**
+
+| func 声明                                    | receiver             | 函数体 | 分类                                   |
+|----------------------------------------------|----------------------|--------|----------------------------------------|
+| `func toString() string`                     | 无                   | 无     | 非默认方法（抽象，由实现方提供）       |
+| `func (Stringer s) toUpper() string { ... }` | 有（当前 interface） | 有     | 默认方法（interface 自带实现）         |
+| `func (Stringer s) foo();`                   | 有                   | 无     | ❌ 编译错误：receiver 与函数体必须成对 |
+| `func bar() { ... }`                         | 无                   | 有     | ❌ 编译错误：receiver 与函数体必须成对 |
 
 ```army
 interface Stringer {
-    func toString() string
+    func toString() string                    // 非默认方法（抽象）：无 receiver、无函数体
 
-    default func toUpper() string {
-        return Stringer.toUpperImpl(Stringer.toString())
+    func (Stringer s) toUpper() string {      // 默认方法：有函数体 + receiver（类型 = 当前 interface）
+        return Stringer.toUpperImpl(s.toString())
     }
 }
 
@@ -1107,11 +1121,31 @@ func (Stringer) toUpperImpl(string s) string {
 }
 ```
 
+**func 区顺序规则**：在一个 interface 内， **所有非默认方法必须声明在默认方法之前**
+；默认方法出现在任一非默认方法之前即语法错误。非默认方法之间、默认方法之间的相对顺序不限（上面的 Stringer
+即"先抽象后默认"的合法形态）：
+
+```army
+// ❌ 错误示范：默认方法出现在非默认方法之前
+// interface Bad {
+//     func (Bad b) process() string {      // 语法错误：默认方法须位于所有非默认方法之后
+//         return Bad.check()
+//     }
+//
+//     func toString() string               // 非默认方法不得晚于默认方法声明
+// }
+```
+
 限制：
 
-- `default func` 最多一行代码。
+- **两点同时成立才是默认方法**：必须有 ① 函数体 ② receiver。receiver 与 struct 实例方法一样写在 `func` 之后、方法名之前，接口名必须等于当前
+  interface 的类型名。 **只满足一点（有 receiver 无函数体、或无 receiver 有函数体）都是编译错误**。
+- **receiver 不支持 `*` 前缀**：interface 本身即引用语义，无指针 receiver。
+- 默认方法体内 **只能通过 receiver 变量调用本 interface 的抽象方法**（如 `s.toString()`），不得用 interface 类型名直接调用实例/抽象方法。
+- 默认方法最多一行代码。
 - 不允许链式调用。
 - 必须委托给静态方法实现真正逻辑。
+- **声明顺序**：默认方法必须位于本 interface 的所有非默认方法之后，违反即语法错误。
 
 ### 10.4 密封 Interface（permits）
 

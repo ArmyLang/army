@@ -694,7 +694,7 @@ func (Option<T> o) unwrap() T {
 // ====================================================================
 //  §2  interface 区 —— 所有 interface 定义及静态方法在此区连续出现
 //     interface 支持组合（类似 Go），嵌入区在前，func 区在后
-//     default func 最多一行，禁止链式调用，强制委托静态方法
+//     默认方法：两点判定（有函数体 + 带 receiver，receiver 类型=本 interface）；单行、禁链式、强制委托静态方法
 // ====================================================================
 
 // ═══ 2.0 interface 组合（Go 风格嵌入，分区：嵌入区 → func 区） ═══
@@ -802,13 +802,19 @@ interface ShapeLike {
 }
 
 
-// ═══ 2.3 default func（单行、无链式调用、强制委托静态方法） ═══
+// ═══ 2.3 默认方法（两点判定：有函数体 + receiver=本 interface；单行、无链式调用、强制委托静态方法；func 区内默认须排在非默认之后） ═══
+
+// 两点判定（区分默认方法与非默认方法）：
+//   func f()                  —— 无 receiver、无函数体            = 抽象方法（非默认，实现方提供）
+//   func (I i) f() { ... }    —— 有 receiver（类型=I）+ 函数体      = 默认方法（interface 自带实现）
+// receiver 与函数体必须成对出现，只满足一点即编译错误。
+// func 区声明顺序：先全部非默认方法（抽象），再默认方法（默认出现在非默认之前即语法错误）
 
 interface Stringer {
-    func toString() string                              // 抽象方法
+    func toString() string                              // ① 非默认（抽象）方法：无 receiver、无函数体
 
-    default func toUpper() string {                     // ✅ default func：func 最前，单行
-        return Stringer.toUpperImpl(Stringer.toString())
+    func (Stringer s) toUpper() string {                // ② 默认方法：有 receiver+函数体，单行；须排在抽象方法之后
+        return Stringer.toUpperImpl(s.toString())
     }
 }
 
@@ -820,25 +826,56 @@ func (Stringer) isBlank(string s) bool {                // 更多静态方法
     return s.length() == 0
 }
 
-// ❌ 错误示范：default func 超过一行
+// ❌ 错误示范：两点必须同时成立——① 无 receiver 却带函数体（非默认方法不可有函数体）
 // interface Bad {
-//     default func process() string {                  // 编译错误：超过一行
-//         string tmp := Stringer.process(this.toString())
+//     func process() string {                          // 编译错误：缺少 receiver
+//         return Bad.check()
+//     }
+// }
+
+// ❌ 错误示范：两点必须同时成立——② 有 receiver 却无函数体
+// interface Bad {
+//     func (Bad b) process() string                    // 编译错误：receiver 必须伴随函数体
+// }
+
+// ❌ 错误示范：默认方法超过一行
+// interface Bad {
+//     func (Bad b) process() string {                  // 编译错误：超过一行
+//         string tmp := b.toString()
 //         return tmp.trim()
 //     }
 // }
 
-// ❌ 错误示范：default func 链式调用
+// ❌ 错误示范：默认方法链式调用
 // interface Bad {
-//     default func process() string {
-//         return this.toString().trim().toUpper()      // 编译错误：链式调用
+//     func (Bad b) process() string {
+//         return b.toString().trim().toUpper()         // 编译错误：链式调用
 //     }
+// }
+
+// ❌ 错误示范：通过 interface 类型名调用抽象方法
+// interface Bad {
+//     func toString() string
+//
+//     func (Bad b) process() string {                  // 编译错误：须用 receiver b.toString()
+//         return Bad.toString().toUpperCase()          // 不能通过类型名调用实例/抽象方法
+//     }
+// }
+
+// ❌ 错误示范：默认方法出现在非默认方法之前
+// interface Bad {
+//     func (Bad b) process() string {                  // 语法错误：默认方法须排在所有非默认方法之后
+//         return Bad.check()
+//     }
+//
+//     func toString() string                           // 非默认方法不得晚于默认方法声明
 // }
 
 
 // ═══ 2.4 interface 结合 struct 实现 ═══
 
-// struct 通过实现 interface 的所有抽象方法隐式满足 interface（类似 Go 的鸭子类型）
+// struct 实现 interface 的全部抽象方法（无 receiver、无函数体）即隐式满足 interface（类似 Go 鸭子类型）
+// 默认方法（带 receiver、有函数体）由 interface 自动提供，实现方无需编写
 
 struct Circle {
     float radius
@@ -864,8 +901,8 @@ func (Circle c) perimeter() float {                     // 满足 ShapeLike.peri
 interface Validator {
     func validate() bool                                // 抽象方法
 
-    default func isValid() bool {                       // 单行 default
-        return Validator.check(Validator.validate())
+    func (Validator v) isValid() bool {                 // 默认方法：receiver 委托抽象方法
+        return Validator.check(v.validate())
     }
 }
 
@@ -891,7 +928,7 @@ func- (Validator) fileCheck(string key) bool {          // private
 interface# FrameworkService {                           // 基包可见
     func start()
 
-    default func boot() {                              // default：委托静态方法
+    func (FrameworkService svc) boot() {               // 默认方法：带 receiver，委托静态方法
         FrameworkService.doBoot()
     }
 }
@@ -1530,8 +1567,8 @@ func main() {
     Drawable d1 := c                                     // Circle : Drawable，密封 permits 检查通过
     d1.draw()
 
-    // default func：调用单行 default 方法
-    string upper := lr.toString().toUpper()              // 来自 Stringer
+    // 默认方法：Stringer 自带实现，通过 interface 变量调用
+    string upper := str.toUpper()                        // 大写化的 toString()（Stringer 默认方法）
 
     // interface 静态方法调用
     string hello := Greeter.hello("zh")
