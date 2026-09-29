@@ -24,6 +24,9 @@
 
 Army 是一门静态类型的编译型语言，融合了 C/Java 系的声明风格、Go 系的接口组合与鸭子类型、以及现代函数式特性（Lambda、匿名函数、方法引用）。
 
+接口除默认鸭子类型外，可用 `&i` 选项限定为 **只能显式实现**；语言内置 `Value` 接口统一表示所有值对象（内建基本类型、数组、
+`map` 等）。
+
 文件后缀：`.army`
 基包定义文件：`base-info.army`
 
@@ -423,6 +426,10 @@ struct _Person {
 | `any`     | 空接口，可表示一切值     |
 
 > 所有类型名是硬关键字，不能被 shadow。
+
+> - 除 `any` 外，上表所有内置类型都是 **值对象**， **显式实现内置 `Value` 接口**（见 §10.8），可直接装入 `Value` 变量或
+    `Value` 容器。
+> - `Any` 是内置空接口（预声明标识符 `any`），`Value` 内嵌 `Any`；两者均定义于 `army.lang` 包。
 
 ### 5.2 数组
 
@@ -1044,7 +1051,7 @@ func (Point) midpoint(Point other) Point {
 ### 10.1 定义
 
 ```
-interface 名称 [可见性] [permits A, B] {
+interface[可见性][&i] 名称 [permits A, B] {
     InterfaceA                           // 嵌入组合区
     InterfaceB
 
@@ -1055,6 +1062,10 @@ interface 名称 [可见性] [permits A, B] {
 
 规则：
 
+- **`&i` 选项（只能显式实现）**：只允许紧跟在 `interface` 关键字或其可见性后缀之后， **中间不得有空白符**（
+  `interface&i Name`、`interface#&i Name`、`interface$&i Name`、`interface~&i Name`、`interface-&i Name`）； **可见性必须写在
+  `&i` 之前**，`interface&i~ Name`、`interface &i Name` 均为语法错误。
+- `&i` 表示该 interface **只能被显式实现**（`struct Name : InterfaceName`）；靠鸭子类型隐式满足该 interface 不被接受，违反即编译错误。
 - **嵌入组合区在前，func 声明区在后**。否则语法错误。
 - 所有方法均为 public。
 - 嵌入组合类似 Go 的 interface 组合：嵌入的 interface 的所有方法被合并到当前 interface。
@@ -1197,6 +1208,7 @@ struct Triangle : ShapeLike {
 ```
 
 - 密封 interface 必须显式实现。
+- **带 `&i` 选项的 interface 必须显式实现**，隐式实现不被接受（与密封 interface、空接口一致）。
 - 一个 struct 可以对部分 interface 显式，其余隐式。
 - **函数类型也可以显式实现 interface**，语法：`func InterfaceName funcName(参数) [返回类型] { 块 }`。编译器检查是否真正实现了 interface 的所有方法。密封 interface 必须显式实现。
 
@@ -1210,7 +1222,8 @@ interface Container {
 }
 ```
 
-Army 内置一个预声明的空接口 `any`（定义于 `army.lang` 包），它可以表示一切值：类型、struct、interface、func 均可赋值给 `any`。
+Army 内置一个预声明的空接口，在 `army.lang` 包中的类型名为 `Any`，语言为其预声明了标识符 `any`（`Any` 与 `any`
+指同一类型），它可以表示一切值：类型、struct、interface、func 均可赋值给 `any`。
 
 ```army
 any x := 42                        // int
@@ -1223,6 +1236,39 @@ x := func(int a) int { return a }  // func
 - 允许声明自定义空接口
 - **空接口和密封接口一样只能显式实现**，隐式实现不被接受
 - `any` 是预声明标识符（非关键字），可被 shadow（不推荐）
+
+### 10.8 Value 接口（所有值对象）
+
+`Value` 是定义于 `army.lang` 包的内置接口： **内嵌内置空接口 `Any`，自身不含任何方法，并带 `&i` 选项**（只能显式实现）。
+
+```army
+interface&i Value {
+    Any                        // 内嵌 Any；无函数，仍是空接口
+}
+```
+
+`Value` 表示 **所有值对象**：内建基本类型、数组、`map`、`List` 等集合类型。它与 `Any` 的分工：
+
+| 接口    | 表示范围                                                 | 实现方式             |
+|---------|----------------------------------------------------------|----------------------|
+| `Any`   | 一切值：内建基本类型、数组、Map、struct、interface、func | 只能显式实现         |
+| `Value` | 值对象：内建基本类型、数组、Map、List 等集合类型         | 只能显式实现（`&i`） |
+
+规则：
+
+- **所有内建基本类型都显式实现 `Value`**：`byte`、`int2`、`int4`、`int8`、`int`、`ubyte`、`uint2`、`uint4`、`uint8`、`uint`、
+  `uintptr`、`float4`、`float8`、`complex8`、`complex16`、`rune`、`string`、`bool`、`decimal`、`error`，由语言在编译期声明，无需开发者编写。
+- 数组、`map` 等值容器同样实现 `Value`。
+- `Value` 带 `&i`，用户自定义类型若要成为值对象，必须显式声明 `: Value`，隐式实现不被接受。
+
+```army
+Value n := 42                                     // int
+Value s := "army"                                 // string
+Value b := true                                   // bool
+
+Value[] mixed := [1, "two", 3.0, true]            // 异构值数组
+map<string, Value> config := map<string, Value>{"port": 8080, "host": "localhost"}
+```
 
 ---
 

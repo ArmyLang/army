@@ -695,6 +695,7 @@ func (Option<T> o) unwrap() T {
 //  §2  interface 区 —— 所有 interface 定义及静态方法在此区连续出现
 //     interface 支持组合（类似 Go），嵌入区在前，func 区在后
 //     默认方法：两点判定（有函数体 + 带 receiver，receiver 类型=本 interface）；单行、禁链式、强制委托静态方法
+//     &i 选项：紧跟 interface 或其可见性后缀之后（中间无空白），表示只能被显式实现
 // ====================================================================
 
 // ═══ 2.0 interface 组合（Go 风格嵌入，分区：嵌入区 → func 区） ═══
@@ -1078,6 +1079,48 @@ func (Rectangle r) draw() {
 // ❌ 隐式实现密封 interface：编译错误
 //    struct Foo { ... }
 //    func (Foo f) someMethod() ...  // 即使实现了所有方法也不满足 SealedInterface
+
+
+// ═══ 2.11 &i 选项：接口只能被显式实现 ═══
+
+interface&i Serializable {                              // 无可见性：&i 紧跟 interface，中间无空白
+    func serialize() string
+}
+
+interface~&i PackageCodec {                             // 有可见性：可见性在 &i 之前，中间无空白
+    func encode() string
+}
+
+struct User : Serializable {                            // ✅ &i 接口必须显式声明 : Serializable
+    string name
+}
+
+func (User u) serialize() string {
+    return u.name
+}
+
+// ❌ 隐式实现 &i 接口：编译错误
+// struct Profile { string bio }
+// func (Profile p) serialize() string { return p.bio }  // 方法齐全也不行，缺显式声明
+
+// ❌ 位置错误
+// interface &i Bad { }                                  // 语法错误：&i 与 interface 之间有空白
+// interface&i~ Bad { }                                  // 语法错误：可见性必须写在 &i 之前
+
+
+// ═══ 2.12 Value 接口：所有值对象（内嵌 Any，无函数，带 &i） ═══
+
+interface&i Value {                                     // 无函数：空接口；&i：只能显式实现
+    Any                                                 // 内嵌内置空接口 Any
+}
+
+// 所有内建基本类型都显式实现 Value（编译器内置，等价于每个类型都写了 : Value）：
+//   int / uint / byte / int2 / int4 / int8 / uint2 / uint4 / uint8 / uintptr
+//   float4 / float8 / complex8 / complex16 / rune / string / bool / decimal / error
+
+struct Money : Value {                                  // 用户自定义类型也可显式成为值对象
+    decimal amount
+}
 
 
 // ====================================================================
@@ -1569,6 +1612,20 @@ func main() {
 
     // 默认方法：Stringer 自带实现，通过 interface 变量调用
     string upper := str.toUpper()                        // 大写化的 toString()（Stringer 默认方法）
+
+    // ── &i 选项与 Value 接口 ──
+
+    // &i 接口必须显式实现：User : Serializable
+    Serializable ser := User{string name: "army"}
+    string serText := ser.serialize()
+
+    // 内建基本类型都显式实现 Value，可直接装入 Value
+    Value iv     := 42
+    Value sv     := "army"
+    Value bv     := true
+    Value[] vals := [1, "two", 3.0, true]                // 异构值数组
+    map<string, Value> settings := map<string, Value>{"port": 8080, "host": "localhost"}
+    Value money  := Money{decimal amount: 12.99}         // 自定义值对象（显式 : Value）
 
     // interface 静态方法调用
     string hello := Greeter.hello("zh")
