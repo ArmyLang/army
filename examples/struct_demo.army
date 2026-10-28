@@ -20,18 +20,13 @@ struct Point {
     int y
 }
 
-// 构造 —— 函数名 = struct 名，无返回值，唯一
-func (Point) Point(int x, int y) {
+// 构造 —— 函数名 = New + struct 名，无返回值，唯一
+func (Point) NewPoint(int x, int y) {
     Point.x = x
     Point.y = y
 }
 
-// 静态方法 —— receiver 无变量名
-func (Point) origin() Point {
-    return Point{int x: 0, int y: 0}
-}
-
-// 实例方法 —— receiver 有变量名；返回值在 ) 右边
+// 实例方法 —— receiver 有变量名；返回值在 ) 右边（实例区在静态区之前）
 func (Point p) distance() float {
     return sqrt(p.x * p.x + p.y * p.y)
 }
@@ -48,29 +43,21 @@ func (Point p) polar() (float r, float theta) {
     return
 }
 
+// 静态方法 —— receiver 无变量名（静态区在实例区之后）
+func (Point) origin() Point {
+    return Point{int x: 0, int y: 0}
+}
+
 
 // ═══ 1.2 func 分区（编写者必须按此顺序手写，否则语法错误）════
-//       构造 func → 静态 func（public→private） → 实例 func（public→private）
+//       构造 func → 实例 func（public→private） → 静态 func（public→private）
 
 struct Counter {
     static int total = 0
 }
 
-func (Counter) Counter() {
+func (Counter) NewCounter() {
     Counter.total = 0
-}
-
-// ── 静态 func 区，public → private ──
-func (Counter) factory() Counter {
-    return Counter{}
-}
-
-func~ (Counter) packageFactory() Counter {
-    return Counter{}
-}
-
-func- (Counter) filePrivateFactory() Counter {
-    return Counter{}
 }
 
 // ── 实例 func 区，public → private ──
@@ -88,6 +75,19 @@ func~ (Counter c) resetLocal() {
 
 func- (Counter c) internalCheck() {
     print(c.total)
+}
+
+// ── 静态 func 区，public → private ──
+func (Counter) factory() Counter {
+    return Counter{}
+}
+
+func~ (Counter) packageFactory() Counter {
+    return Counter{}
+}
+
+func- (Counter) filePrivateFactory() Counter {
+    return Counter{}
 }
 
 
@@ -114,7 +114,7 @@ struct Buffer {
     string data
 }
 
-func (Buffer) Buffer(int sz, string d) {
+func (Buffer) NewBuffer(int sz, string d) {
     Buffer.size = sz
     Buffer.data = d
 }
@@ -144,7 +144,7 @@ struct Animal {
     int    age
 }
 
-func (Animal) Animal(string s, int a) {
+func (Animal) NewAnimal(string s, int a) {
     Animal.species = s
     Animal.age     = a
 }
@@ -158,7 +158,7 @@ struct Pet {
     string name
 }
 
-func (Pet) Pet(string s, int a, string n) {
+func (Pet) NewPet(string s, int a, string n) {
     Pet.species = s
     Pet.age     = a
     Pet.name    = n
@@ -174,7 +174,7 @@ struct Dog {
     string breed
 }
 
-func (Dog) Dog(string n, string b) {
+func (Dog) NewDog(string n, string b) {
     Dog.name  = n
     Dog.breed = b
 }
@@ -190,7 +190,7 @@ struct Shape permits Circle, Rectangle, Triangle {
     string color
 }
 
-func (Shape) Shape(string c) {
+func (Shape) NewShape(string c) {
     Shape.color = c
 }
 
@@ -203,7 +203,7 @@ struct Circle {
     float radius
 }
 
-func (Circle) Circle(float r, string c) {
+func (Circle) NewCircle(float r, string c) {
     Circle.radius = r
     Circle.color  = c
 }
@@ -218,7 +218,7 @@ struct Rectangle {
     float height
 }
 
-func (Rectangle) Rectangle(float w, float h, string c) {
+func (Rectangle) NewRectangle(float w, float h, string c) {
     Rectangle.width  = w
     Rectangle.height = h
     Rectangle.color  = c
@@ -234,7 +234,7 @@ struct Triangle {
     float height
 }
 
-func (Triangle) Triangle(float b, float h, string c) {
+func (Triangle) NewTriangle(float b, float h, string c) {
     Triangle.base   = b
     Triangle.height = h
     Triangle.color  = c
@@ -243,7 +243,7 @@ func (Triangle) Triangle(float b, float h, string c) {
 // struct Square { Shape; float side }   ❌ 不在 permits 列表中
 
 
-// ═══ 1.7 可见性（5 种基本 + 1 种降级） ═══
+// ═══ 1.7 可见性（5 种基本 + 1 种降级：类型与 struct 函数通用） ═══
 
 // public —— 无后缀（默认）
 struct Order {
@@ -251,16 +251,17 @@ struct Order {
     decimal amount
 }
 
-func (Order) Order(string id, decimal amount) {
+func (Order) NewOrder(string id, decimal amount) {
     Order.id     = id
     Order.amount = amount
 }
 
+// 实例 func 区在前
 func (Order o) total() decimal {
     return o.amount
 }
 
-// 基包可见 —— #
+// 静态 func 区在后；基包可见 —— #
 func# (Order) audit(Order o) bool {
     return o.amount > 0
 }
@@ -270,7 +271,7 @@ struct$ InternalService {
     string token
 }
 
-func$ (InternalService) InternalService(string t) {
+func$ (InternalService) NewInternalService(string t) {
     InternalService.token = t
 }
 
@@ -283,7 +284,7 @@ struct~ PackageHelper {
     int counter
 }
 
-func~ (PackageHelper) PackageHelper() {
+func~ (PackageHelper) NewPackageHelper() {
     PackageHelper.counter = 0
 }
 
@@ -296,7 +297,7 @@ struct- Config {
     string secret
 }
 
-func- (Config) Config(string s) {
+func- (Config) NewConfig(string s) {
     Config.secret = s
 }
 
@@ -305,14 +306,16 @@ func- (Config c) secret() string {
 }
 
 
-// ═══ 1.8 降级可见性（_ 前缀，类型自身降一级） ═══
+// ═══ 1.8 降级可见性（_ 前缀） ═══
+// (1) 类型降级：_ 前缀使类型自身降一级
+// (2) 函数降级：struct 函数名以 _ 开头，可见性降一级，并额外获得「匿名组合了该 struct 的结构体成员可见」
 
 struct _Person {
     string name
     int    age
 }
 
-func (_Person) _Person(string n, int a) {
+func (_Person) NewPerson(string n, int a) {    // _ 降级前缀不计入名字，构造函数为 NewPerson
     _Person.name = n
     _Person.age  = a
 }
@@ -325,6 +328,50 @@ func (_Person p) name() string {               // 成员仍是 public
 // _Person 从 public 降为基包可见
 
 
+// ── 1.8b. struct 函数名 _ 前缀：降一级 + 匿名组合体成员可见 ──
+
+struct Repo {
+    string table
+}
+
+func (Repo) NewRepo(string t) {
+    Repo.table = t
+}
+
+// 实例 func 区（按声明后缀 public→private 排序，_ 前缀不改变排序位置）
+func (Repo r) _raw(string sql) string {              // public → 基包可见 + 组合体可见
+    return sql
+}
+
+func# (Repo r) _audit(string sql) bool {             // 基包 → 本包及子包 + 组合体可见
+    return sql.length() > 0
+}
+
+func$ (Repo r) _hint() string {                      // 本包及子包 → 本包 + 组合体可见
+    return Repo.table
+}
+
+func~ (Repo r) _tag() string {                       // 本包 → private（已降到底，无附加权限）
+    return Repo.table
+}
+
+func- (Repo r) _secret() string {                    // private → 不变
+    return Repo.table
+}
+
+// 匿名组合 Repo 的结构体，其成员可访问 Repo 的 _ 函数
+struct CachedRepo {
+    Repo
+    int capacity
+}
+
+func (CachedRepo c) describe() string {
+    return c._raw("SELECT 1") + c._hint()            // ✅ 匿名组合体成员可见
+}
+
+// c._audit(...) 在基包外不可调用；_tag、_secret 连组合体内也不可见
+
+
 // ═══ 1.9 decimal 类型 ═══
 
 struct Price {
@@ -332,7 +379,7 @@ struct Price {
     string  currency
 }
 
-func (Price) Price(decimal a, string c) {
+func (Price) NewPrice(decimal a, string c) {
     Price.amount   = a
     Price.currency = c
 }
@@ -354,7 +401,7 @@ struct&ne ImmutableValue {                     // public，且不允许外部扩
     int              value
 }
 
-func (ImmutableValue) ImmutableValue(int v) {
+func (ImmutableValue) NewImmutableValue(int v) {
     if v > ImmutableValue.MAX {
         ImmutableValue.value = ImmutableValue.MAX
     } else {
@@ -371,7 +418,7 @@ struct~&ne PackageSecret {                     // 本包可见 + 禁止外部扩
     string key
 }
 
-func~ (PackageSecret) PackageSecret(string k) {
+func~ (PackageSecret) NewPackageSecret(string k) {
     PackageSecret.key = k
 }
 
@@ -385,7 +432,7 @@ struct-&ne FilePrivate {                       // 本文件可见 + 禁止外部
 // ═══ 1.11 枚举（@struct） ═══
 // 枚举是 struct 的特化，用 @struct 标注，不引入单独的 enum 关键字
 // 带数据的枚举常量和 Java 一样
-// 方法规则和普通 struct 完全一致：三分区（构造→静态→实例，public→private），写在外部紧跟
+// 方法规则和普通 struct 完全一致：三分区（构造→实例→静态，public→private），写在外部紧跟
 
 // 1.11a. 简单枚举（无数据）
 @struct Day {
@@ -399,20 +446,10 @@ struct-&ne FilePrivate {                       // 本文件可见 + 禁止外部
 }
 
 // ── 构造 func 区 ──
-// 编译器自动生成，不可手动编写
+// 编译器自动生成（命名为 NewDay），不可手动编写
 // 编译器自动生成静态方法: values(), valueOf(string)
 
-// ── 静态 func 区（public→private） ──
-func (Day) fromOrdinal(int n) Day {
-    Day[] all := Day.values()
-    return all[n]
-}
-
-func- (Day) internalIndex(Day d) int {
-    return d.ordinal()
-}
-
-// ── 实例 func 区（public→private） ──
+// ── 实例 func 区（public→private，在静态区之前） ──
 func (Day d) isWeekend() bool {
     return d == Day.SATURDAY || d == Day.SUNDAY
 }
@@ -423,6 +460,16 @@ func (Day d) label() string {
 
 func- (Day d) isWorkday() bool {
     return !d.isWeekend()
+}
+
+// ── 静态 func 区（public→private，在实例区之后） ──
+func (Day) fromOrdinal(int n) Day {
+    Day[] all := Day.values()
+    return all[n]
+}
+
+func- (Day) internalIndex(Day d) int {
+    return d.ordinal()
 }
 
 
@@ -437,18 +484,7 @@ func- (Day d) isWorkday() bool {
     int b
 }
 
-// ── 构造 func 区：编译器根据常量数据自动生成 ──
-
-// ── 静态 func 区（public→private） ──
-func (Color) fromRGB(int r, int g, int b) Color {
-    Color[] all := Color.values()
-    for int i := 0; i < all.length(); i = i + 1 {
-        if all[i].r == r && all[i].g == g && all[i].b == b {
-            return all[i]
-        }
-    }
-    return Color.RED                                     // fallback
-}
+// ── 构造 func 区：编译器根据常量数据自动生成（命名为 NewColor） ──
 
 // ── 实例 func 区（public→private） ──
 func (Color c) hex() string {
@@ -463,6 +499,17 @@ func- (Color c) luminance() float {
     return c.brightness()
 }
 
+// ── 静态 func 区（public→private） ──
+func (Color) fromRGB(int r, int g, int b) Color {
+    Color[] all := Color.values()
+    for int i := 0; i < all.length(); i = i + 1 {
+        if all[i].r == r && all[i].g == g && all[i].b == b {
+            return all[i]
+        }
+    }
+    return Color.RED                                     // fallback
+}
+
 
 // 1.11c. 带数据 + 更多字段
 @struct HttpStatus {
@@ -474,7 +521,16 @@ func- (Color c) luminance() float {
     string message
 }
 
-// ── 构造 func 区：编译器自动生成 ──
+// ── 构造 func 区：编译器自动生成（命名为 NewHttpStatus） ──
+
+// ── 实例 func 区（public→private） ──
+func (HttpStatus s) isSuccess() bool {
+    return s.code >= 200 && s.code < 300
+}
+
+func (HttpStatus s) isError() bool {
+    return s.code >= 400
+}
 
 // ── 静态 func 区（public→private） ──
 func (HttpStatus) fromCode(int code) HttpStatus {
@@ -487,15 +543,6 @@ func (HttpStatus) fromCode(int code) HttpStatus {
     return HttpStatus.OK
 }
 
-// ── 实例 func 区（public→private） ──
-func (HttpStatus s) isSuccess() bool {
-    return s.code >= 200 && s.code < 300
-}
-
-func (HttpStatus s) isError() bool {
-    return s.code >= 400
-}
-
 
 // 1.11d. 可见性枚举
 @struct~ InternalRole {                                 // 本包可见
@@ -504,12 +551,7 @@ func (HttpStatus s) isError() bool {
     GUEST
 }
 
-// ── 构造 func 区：编译器自动生成 ──
-
-// ── 静态 func 区 ──
-func~ (InternalRole) defaultRole() InternalRole {
-    return InternalRole.USER
-}
+// ── 构造 func 区：编译器自动生成（命名为 NewInternalRole） ──
 
 // ── 实例 func 区（public→private） ──
 func~ (InternalRole r) hasAccess(string resource) bool {
@@ -520,6 +562,11 @@ func~ (InternalRole r) hasAccess(string resource) bool {
 
 func-~ (InternalRole r) checkLevel() bool {             // private
     return r == InternalRole.ADMIN
+}
+
+// ── 静态 func 区（public→private） ──
+func~ (InternalRole) defaultRole() InternalRole {
+    return InternalRole.USER
 }
 
 
@@ -534,7 +581,7 @@ struct Box<T> {
     T value
 }
 
-func (Box<T>) Box<T>(T v) {
+func (Box<T>) NewBox(T v) {
     Box.value = v
 }
 
@@ -553,7 +600,7 @@ struct Pair<K, V> {
     V value
 }
 
-func (Pair<K, V>) Pair<K, V>(K k, V v) {
+func (Pair<K, V>) NewPair(K k, V v) {
     Pair.key   = k
     Pair.value = v
 }
@@ -577,7 +624,7 @@ struct SortedItem<T : Comparable<T>> {
     T data
 }
 
-func (SortedItem<T>) SortedItem<T>(T d) {
+func (SortedItem<T>) NewSortedItem(T d) {
     SortedItem.data = d
 }
 
@@ -593,7 +640,7 @@ struct NumberHolder<T : Comparable<T> & Stringer> {
     T data
 }
 
-func (NumberHolder<T>) NumberHolder<T>(T d) {
+func (NumberHolder<T>) NewNumberHolder(T d) {
     NumberHolder.data = d
 }
 
@@ -642,7 +689,7 @@ struct UserRepo : Repository<Pair<string, int>> {
     string table
 }
 
-func (UserRepo) UserRepo(string t) {
+func (UserRepo) NewUserRepo(string t) {
     UserRepo.table = t
 }
 
@@ -674,18 +721,20 @@ func (Option<T> o) unwrap() T {
 // ═══ 1.13 包内扩展方法 ═══
 
 // 同一包内可以在其他 .army 文件中为一个 struct（无 &ne 选项、可见性允许）继续添加方法:
+// 扩展方法同样遵守分区顺序：实例 func 在前、静态 func 在后，各区 public→private
+// 构造函数唯一且只写在 struct 定义文件，扩展文件不可再写构造函数
 //
 //   // point_extra.army —— 同包内的扩展文件（struct 区中）
+//   func (Point p) normalize() Point {
+//       float d := p.distance()
+//       return Point{int x: p.x / d, int y: p.y / d}
+//   }
+//
 //   func (Point) midpoint(Point other) Point {
 //       return Point{
 //           int x: (Point.x + other.x) / 2,
 //           int y: (Point.y + other.y) / 2,
 //       }
-//   }
-//
-//   func (Point p) normalize() Point {
-//       float d := p.distance()
-//       return Point{int x: p.x / d, int y: p.y / d}
 //   }
 //
 // ❌ ImmutableValue、PackageSecret、FilePrivate 有 &ne 选项，其他文件不可扩展
@@ -764,7 +813,7 @@ struct FileRW : ReadWriter {
     string path
 }
 
-func (FileRW) FileRW(string p) {
+func (FileRW) NewFileRW(string p) {
     FileRW.path = p
 }
 
@@ -882,7 +931,7 @@ struct Circle {
     float radius
 }
 
-func (Circle) Circle(float r) {
+func (Circle) NewCircle(float r) {
     Circle.radius = r
 }
 
@@ -962,7 +1011,7 @@ struct Rectangle {
     float height
 }
 
-func (Rectangle) Rectangle(float w, float h) {
+func (Rectangle) NewRectangle(float w, float h) {
     Rectangle.width  = w
     Rectangle.height = h
 }
@@ -979,7 +1028,7 @@ struct Square {
     float side
 }
 
-func (Square) Square(float s) {
+func (Square) NewSquare(float s) {
     Square.side = s
 }
 
@@ -1001,7 +1050,7 @@ struct Triangle : ShapeLike {                           // : 后跟 interface �
     float height
 }
 
-func (Triangle) Triangle(float b, float h) {
+func (Triangle) NewTriangle(float b, float h) {
     Triangle.base   = b
     Triangle.height = h
 }
@@ -1021,7 +1070,7 @@ struct LabeledRect : ShapeLike, Stringer {              // 逗号分隔
     string label
 }
 
-func (LabeledRect) LabeledRect(float w, float h, string l) {
+func (LabeledRect) NewLabeledRect(float w, float h, string l) {
     LabeledRect.width  = w
     LabeledRect.height = h
     LabeledRect.label  = l
@@ -1429,10 +1478,10 @@ func (Calculator c) applyAndLog(int a, int b) int {
     return result
 }
 
-// 3.6d. 构造方法引用：Type::new
+// 3.6d. 构造方法引用：Type::NewXxx（构造函数名为 New + 结构体名）
 func buildBox() {
     // 构造函数引用（需支持 SAM interface 的返回类型匹配）
-    // Supplier<Box<int>> boxFactory := Box<int>::new
+    // Supplier<Box<int>> boxFactory := Box<int>::NewBox
 }
 
 // 3.6e. 重载函数引用 — 用 #n 消除歧义（n = 参数个数）

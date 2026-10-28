@@ -367,14 +367,14 @@ Army 将空格和逗号格式提升为**编译期强制规则**而非风格建�
 
 ### 4.4 可见性（6 种）
 
-| 可见性     | 记号           | 说明                 |
-|------------|----------------|----------------------|
-| public     | 无后缀（默认） | 任何地方可访问       |
-| 基包       | `#`            | 整个基包可见         |
-| 本包及子包 | `$`            | 本包及其子包可见     |
-| 本包       | `~`            | 仅本包可见           |
-| private    | `-`            | 仅本文件可见         |
-| 降级       | `_` 前缀       | 类型自身降一级可见性 |
+| 可见性     | 记号           | 说明                               |
+|------------|----------------|------------------------------------|
+| public     | 无后缀（默认） | 任何地方可访问                     |
+| 基包       | `#`            | 整个基包可见                       |
+| 本包及子包 | `$`            | 本包及其子包可见                   |
+| 本包       | `~`            | 仅本包可见                         |
+| private    | `-`            | 仅本文件可见                       |
+| 降级       | `_` 前缀       | 类型自身或 struct 函数降一级可见性 |
 
 用法示例：
 
@@ -393,6 +393,69 @@ struct _Person {
     string name                    // 字段仍是 public
 }
 // 外部可访问 p.name()，但不能声明 _Person 类型的变量
+```
+
+#### 4.4.1 struct 函数名 `_` 前缀：降一级 + 匿名组合体可见
+
+struct 的函数（构造、静态、实例）若 **函数名**以下划线 `_` 开头，则该函数的可见性在声明后缀的基础上 **降一级**，并 **额外**
+获得「匿名组合了该 struct 的结构体成员可见」的权限：
+
+| 声明后缀     | 原可见性   | 加 `_` 前缀后的可见性                                            |
+|--------------|------------|------------------------------------------------------------------|
+| 无（public） | 任何地方   | **基包**（`#`）+ 匿名组合体成员可见                              |
+| `#`          | 基包       | **本包及子包**（`$`）+ 匿名组合体成员可见                        |
+| `$`          | 本包及子包 | **本包**（`~`）+ 匿名组合体成员可见                              |
+| `~`          | 本包       | **private**（`-`），已降到底，不再附加组合体权限（与 `_-` 等价） |
+| `-`          | private    | **不变**（private）                                              |
+
+规则：
+
+- 「匿名组合体成员可见」指：在 **直接或间接（多层）匿名组合**了该 struct 的结构体的 **实例函数**（receiver
+  为该结构体）内部可以正常访问该函数；除此之外一律按降级后的可见性判断。
+- 声明后缀照旧书写，`_` 只加在函数名前面，两者可并存。例：`func# (Repo r) _audit() bool`。
+- 下降到 private 后已无更低级别，附加的组合体权限失效，`_~` 与 `_-` 效果相同。
+- **只适用于 struct 的函数**；interface 的抽象方法、默认方法、静态方法以及全局函数均不使用该规则。
+- 排序仍按 **声明后缀**的 public→private 判断，`_` 前缀本身不影响排序位置。
+
+```army
+struct Repo {
+    string table
+}
+
+func (Repo) NewRepo(string t) {                     // 构造：New + 结构体名
+    Repo.table = t
+}
+
+func (Repo r) _raw(string sql) string {             // public → 基包 + 组合体可见
+    return sql
+}
+
+func# (Repo r) _audit(string sql) bool {            // 基包 → 本包及子包 + 组合体可见
+    return sql.length() > 0
+}
+
+func$ (Repo r) _hint() string {                     // 本包及子包 → 本包 + 组合体可见
+    return Repo.table
+}
+
+func~ (Repo r) _tag() string {                      // 本包 → private（到底，无附加权限）
+    return Repo.table
+}
+
+func- (Repo r) _secret() string {                   // private → 不变
+    return Repo.table
+}
+
+struct CachedRepo {
+    Repo                                            // 匿名组合
+    int capacity
+}
+
+func (CachedRepo c) describe() string {
+    return c._raw("SELECT 1") + c._hint()           // ✅ 匿名组合体成员可见
+}
+
+// c._audit() 在基包外不可调用；_tag / _secret 在组合体外不可见
 ```
 
 ---
@@ -584,8 +647,8 @@ StringFilter long := String::isEmpty
 // 当前实例方法引用
 Calculator self := this::compute
 
-// 构造方法引用
-Supplier<Box<int>> factory := Box<int>::new
+// 构造方法引用（构造函数名为 New + 结构体名）
+Supplier<Box<int>> factory := Box<int>::NewBox
 ```
 
 ### 6.6 函数作为 SAM Interface 实现
@@ -945,28 +1008,36 @@ struct Circle {                                       // 在 permits 列表中
 
 方法按以下顺序编写，否则语法错误：
 
-1. **构造 func 区** — 唯一。函数名 = struct 名，无返回值。
-2. **静态 func 区** — 按可见性 public→private。
-3. **实例 func 区** — 按可见性 public→private。
+1. **构造 func 区** — 唯一。函数名 = `New` + struct 名，无返回值。
+2. **实例 func 区** — 按可见性 public→private（ **在静态区之前**）。
+3. **静态 func 区** — 按可见性 public→private（ **在实例区之后**）。
+
+构造命名规则：
+
+- 构造函数名恒为 `New` + struct 名：`Point` → `NewPoint`、`UserRepo` → `NewUserRepo`。
+- 泛型 struct 不写类型参数：`Box<T>` → `NewBox`、`Pair<K, V>` → `NewPair`（receiver 中照常写类型参数）。
+- 可见性后缀与 struct 自身一致：`struct$ InternalService` → `func$ (InternalService) NewInternalService(...)`。
+- 降级前缀 `_` 不计入名字主体：`struct _Person` → `func (_Person) NewPerson(...)`，构造函数可见性随 struct 降为基包。
+- 构造函数必须无返回值、全 struct 唯一、不可重载；包内扩展文件不可再写构造函数。
 
 ```army
 struct Counter {
     static int total = 0
 }
 
-// 1. 构造 func
-func (Counter) Counter() {
+// 1. 构造 func —— New + 结构体名
+func (Counter) NewCounter() {
     Counter.total = 0
 }
 
-// 2. 静态 func 区（public → private）
-func (Counter) factory() Counter { return Counter{} }
-func- (Counter) privateFactory() Counter { return Counter{} }
-
-// 3. 实例 func 区（public → private）
+// 2. 实例 func 区（public → private）
 func (Counter c) increment() { c.total = c.total + 1 }
 func (Counter c) value() int { return c.total }
 func- (Counter c) internalCheck() { print(c.total) }
+
+// 3. 静态 func 区（public → private）
+func (Counter) factory() Counter { return Counter{} }
+func- (Counter) privateFactory() Counter { return Counter{} }
 ```
 
 Receiver 语法：
@@ -1005,9 +1076,9 @@ Receiver 语法：
 
 规则：
 
-- 编译器自动生成构造；开发者不可手动编写构造。
+- 编译器自动生成构造（命名为 `New` + 枚举名）；开发者不可手动编写构造。
 - 编译器自动生成静态方法：`values()`, `valueOf(string)`, 实例方法：`name()`, `ordinal()`。
-- 方法分区规则与普通 struct 完全一致（构造→静态→实例，public→private）。
+- 方法分区规则与普通 struct 完全一致（构造→实例→静态，public→private）。
 
 ### 9.8 包内扩展
 
@@ -1033,7 +1104,8 @@ Receiver 语法：
 
 #### 9.8.2 扩展方法
 
-同一包内，可为 struct 继续添加方法（与 struct 本文件中的方法分区规则一致）：
+同一包内，可为 struct 继续添加方法（与 struct 本文件中的方法分区规则一致：实例区在前、静态区在后，各区 public→private）。
+**构造函数唯一且只存在于 struct 定义文件，扩展文件不可再写构造函数。**
 
 ```army
 // point_extra.army — 同包内的扩展文件
