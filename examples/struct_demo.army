@@ -6,6 +6,7 @@
 
 // ═══════════════════════ 内置类型 ═══════════════════════
 // int, float, decimal, string, bool, void, error
+// 空安全：函数参数与返回值默认 not-null，可 null 必须加 @Nullable（见 3.8 节）
 
 
 // ====================================================================
@@ -129,7 +130,7 @@ func (Buffer* b) append(string s) {
     b.size = b.data.length()
 }
 
-func (Buffer b) read() (string data, error err) {
+func (Buffer b) read() (string data, @Nullable error err) {    // err 可为 nil，必须标注
     if b.size == 0 {
         return "", error("empty buffer")
     }
@@ -666,7 +667,7 @@ func<T> swap(T a, T b) (T, T) {
     return b, a
 }
 
-func<T> first(T[] items) T {
+func<T> first(T[] items) @Nullable T {                        // 空数组时返回 nil，返回值必须标注
     if items.length() == 0 {
         return nil
     }
@@ -680,7 +681,7 @@ interface Repository<T> {
     func save(T entity)
 }
 
-func (Repository<T>) empty() T {
+func (Repository<T>) empty() @Nullable T {
     return nil
 }
 
@@ -707,10 +708,10 @@ func (UserRepo r) save(Pair<string, int> entity) {
     SOME(T)
     NONE
 
-    T data                                            // NONE 没有数据时值为 nil
+    @Nullable T data                                  // NONE 没有数据时值为 nil
 }
 
-func (Option<T> o) unwrap() T {
+func (Option<T> o) unwrap() @Nullable T {
     if o == Option.NONE {
         // 编译检查：调用 unwrap 前应判断
     }
@@ -750,15 +751,15 @@ func (Option<T> o) unwrap() T {
 // ═══ 2.0 interface 组合（Go 风格嵌入，分区：嵌入区 → func 区） ═══
 
 interface Reader {
-    func read() (string data, error err)
+    func read() (string data, @Nullable error err)       // err 可空
 }
 
 interface Writer {
-    func write(string data) error
+    func write(string data) @Nullable error              // 成功时返回 nil
 }
 
 interface Closer {
-    func close() error
+    func close() @Nullable error
 }
 
 // 组合：嵌入多个 interface，写在 func 声明之前
@@ -767,8 +768,8 @@ interface ReadWriter {
     Writer
 }
 
-func (ReadWriter) copy(Reader r, Writer w) error {      // 静态方法
-    string data, error err := r.read()
+func (ReadWriter) copy(Reader r, Writer w) @Nullable error {    // 静态方法
+    string data, @Nullable error err := r.read()
     if err != nil { return err }
     return w.write(data)
 }
@@ -779,14 +780,13 @@ interface ReadWriteCloser {
     Writer
     Closer
 
-    func flush() error                                   // func 声明在嵌入区之后
+    func flush() @Nullable error                         // func 声明在嵌入区之后
 }
 
-func (ReadWriteCloser) pipe(Reader r, Writer w) error {
-    string data, error err := r.read()
+func (ReadWriteCloser) pipe(Reader r, Writer w) @Nullable error {
+    string data, @Nullable error err := r.read()
     if err != nil { return err }
-    error werr := w.write(data)
-    return werr
+    return w.write(data)
 }
 
 // 泛型组合
@@ -817,11 +817,11 @@ func (FileRW) NewFileRW(string p) {
     FileRW.path = p
 }
 
-func (FileRW f) read() (string data, error err) {
+func (FileRW f) read() (string data, @Nullable error err) {
     return readFile(f.path), nil
 }
 
-func (FileRW f) write(string data) error {
+func (FileRW f) write(string data) @Nullable error {
     return writeFile(f.path, data)
 }
 
@@ -1525,6 +1525,64 @@ func increment(int a, int delta, string log) (int result, string msg) {
 // func increment(int a) string { ... }                  // 编译错误：参数个数=1，已存在
 
 
+// ═══ 3.8 空安全：参数与返回值默认 not-null，@Nullable 显式放宽 ═══
+// 规则：
+//   1. 所有函数的参数与返回值默认 not-null
+//   2. 返回 nil 或可 null 值 → 编译错误
+//   3. 向 not-null 参数传入 nil 或可 null 值 → 编译错误
+//   4. 想传入 / 返回可 null 值，必须为该参数 / 返回值加 @Nullable 注解
+//   5. @Nullable 写在类型之前，多返回值逐个标注，未标注的位置仍是 not-null
+
+// ✅ 默认即 not-null：参数与返回值无需任何注解
+func lenOf(string s) int {
+    return s.length()
+}
+
+// ✅ @Nullable 参数：允许调用方传 nil
+func greetUser(@Nullable Pair<string, int> u) string {
+    if u == nil {
+        return "hello, guest"
+    }
+    return "hello, " + u.key                              // != nil 判断后收窄为 not-null
+}
+
+// ✅ @Nullable 返回值：允许返回 nil
+func findOrNil(string id) @Nullable Pair<string, int> {
+    if id == "" {
+        return nil                                        // ✅ 返回类型带 @Nullable
+    }
+    return Pair{K: id, V: 0}
+}
+
+// ✅ 多返回值逐个标注：第一项 not-null，第二项可空
+func parseLen(string raw) (int, @Nullable error) {
+    if raw == "" {
+        return 0, error("empty input")
+    }
+    return raw.length(), nil
+}
+
+// ❌ not-null 返回值返回 nil —— 编译错误
+// func broken(string id) Pair<string, int> {
+//     return nil
+// }
+
+// ❌ not-null 参数传入 nil —— 编译错误
+// lenOf(nil)
+
+// ❌ 可 null 值传给 not-null 参数 —— 编译错误
+// lenOf(findOrNil("u1"))                                // findOrNil 返回 @Nullable，lenOf 参数是 not-null
+
+// ✅ 可 null 值先判断收窄，再传给 not-null 参数
+func safeLen() int {
+    @Nullable Pair<string, int> found := findOrNil("u1")
+    if found == nil {
+        return 0
+    }
+    return lenOf(found.key)                               // 收窄后可安全传入
+}
+
+
 // ═══ 原有顶级函数 ═══
 
 func divide(int a, int b) (int quotient, int remainder) {
@@ -1571,8 +1629,11 @@ func main() {
     Box<string> strBox := Box{Box<string>.value: "hello"}
     string unboxed := strBox.get()
 
-    // 泛型函数
-    int firstNum := first([1, 2, 3])
+    // 泛型函数（first 返回 @Nullable，需收窄后使用）
+    @Nullable int firstNum := first([1, 2, 3])
+    if firstNum != nil {
+        print(firstNum)                                   // 收窄为 not-null
+    }
     int a, int b := swap(10, 20)
 
     // 通配符

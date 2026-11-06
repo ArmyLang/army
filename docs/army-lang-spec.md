@@ -516,7 +516,9 @@ map<string, int> scores := map<string, int>{"alice": 95, "bob": 87}
 
 ### 5.4 空值
 
-`nil` 是所有引用类型和接口类型的零值。
+`nil` 是引用类型和接口类型的零值。
+
+**空安全**：所有函数的参数与返回值默认 **not-null** —— 返回 `nil` 或可 null 值、向 not-null 参数传入 `nil` 或可 null 值，一律编译错误。需要可 null 的位置必须显式加 `@Nullable` 注解（见 §11.5）。
 
 ---
 
@@ -1451,6 +1453,65 @@ func foo() { ... }                         // ❌ 编译错误：有效参数个
 func bar(int a, string s = "hi") { ... }
 func bar(int a) { ... }                    // ❌ 编译错误：有效参数个数都是 1
 ```
+
+### 11.5 空安全：默认 not-null 与 @Nullable
+
+Army 所有函数的**参数与返回值默认 not-null**：
+
+- **返回** `nil` 或可 null 值 —— 编译错误
+- **向 not-null 参数传入** `nil` 或可 null 值 —— 编译错误
+- 想传入或返回可 null 值，必须为该参数 / 返回值加 `@Nullable` 注解
+
+语法：`@Nullable` 写在类型之前，注解与类型之间恰好一个空格：
+
+```army
+// ✅ 默认即 not-null：参数与返回值无需任何注解
+func lenOf(string s) int {
+    return s.length()
+}
+
+// ✅ @Nullable 参数：允许调用方传 nil
+func greet(@Nullable User u) string {
+    if u == nil {
+        return "hello, guest"
+    }
+    return "hello, " + u.name()
+}
+
+// ✅ @Nullable 返回值：允许返回 nil
+func findUser(int id) @Nullable User {
+    if id < 0 {
+        return nil                                       // ✅ 返回类型带 @Nullable
+    }
+    return loadUser(id)
+}
+
+// ❌ not-null 返回值返回 nil —— 编译错误
+// func broken(int id) User {
+//     return nil
+// }
+
+// ❌ not-null 参数传入 nil —— 编译错误
+// lenOf(nil)
+
+// ❌ 可 null 值传给 not-null 参数 —— 编译错误
+// lenOf(findUser(1))                                    // findUser 返回可 null 值
+```
+
+规则：
+
+- `@Nullable` 按位置逐个标注；**多返回值中未标注的位置仍是 not-null**：
+
+```army
+func parse(string raw) (@Nullable User, @Nullable error) {
+    // 第一项与第二项都可空
+}
+```
+
+- `nil` 只能出现在 `@Nullable` 标注的类型位置；not-null 位置出现 `nil` 或可 null 值均编译错误。
+- 可 null 值（来自 `@Nullable` 返回值、可空变量等）在未收窄前传给 not-null 参数或赋给 not-null 变量同样是编译错误，必须先做 `!= nil` 判断收窄。
+- `@Nullable` 也可用于局部变量与字段声明；未标注的变量 / 字段同样 not-null。
+- interface 的抽象方法声明同样遵循本规则；`@Nullable` 是签名的一部分，实现必须与声明一致。
 
 ---
 
