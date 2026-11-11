@@ -2,6 +2,9 @@
 //  Army 语言 —— 完整语法用例
 //  文件分区顺序：struct 区 → interface 区 → 全局 func 区 → 全局变量区
 //  各区内部必须连续，不能交错
+//  控制流总则：if / for / switch 只做分流与求值；函数正常出口唯一，
+//              提前 return 只允许出现在开头 guard 区或「命中即结束」的循环内
+//              （见 §11.6、3.1、3.2、3.3）
 // ====================================================================
 
 // ═══════════════════════ 内置类型 ═══════════════════════
@@ -505,10 +508,10 @@ func (Color) fromRGB(int r, int g, int b) Color {
     Color[] all := Color.values()
     for int i := 0; i < all.length(); i = i + 1 {
         if all[i].r == r && all[i].g == g && all[i].b == b {
-            return all[i]
+            return all[i]                                // ✅ 循环内 return：遍历的唯一目的就是查找，找到即结束
         }
     }
-    return Color.RED                                     // fallback
+    return Color.RED                                     // 未匹配的兜底（循环后无其它逻辑）
 }
 
 
@@ -538,10 +541,10 @@ func (HttpStatus) fromCode(int code) HttpStatus {
     HttpStatus[] all := HttpStatus.values()
     for int i := 0; i < all.length(); i = i + 1 {
         if all[i].code == code {
-            return all[i]
+            return all[i]                                // ✅ 找到即返回，无需继续遍历
         }
     }
-    return HttpStatus.OK
+    return HttpStatus.OK                                 // 未匹配的兜底
 }
 
 
@@ -556,9 +559,11 @@ func (HttpStatus) fromCode(int code) HttpStatus {
 
 // ── 实例 func 区（public→private） ──
 func~ (InternalRole r) hasAccess(string resource) bool {
-    if r == InternalRole.ADMIN { return true }
-    if r == InternalRole.GUEST { return false }
-    return false
+    bool granted = false                                 // 兜底值
+    if r == InternalRole.ADMIN {
+        granted = true
+    }
+    return granted                                       // 单点返回
 }
 
 func-~ (InternalRole r) checkLevel() bool {             // private
@@ -837,10 +842,11 @@ interface Greeter {
 }
 
 func (Greeter) hello(string lang) string {              // 静态方法，紧跟 interface
+    string greeting = "Hello"                           // 兜底值
     if lang == "zh" {
-        return "你好"
+        greeting = "你好"
     }
-    return "Hello"
+    return greeting                                     // 单点返回
 }
 
 
@@ -1205,35 +1211,78 @@ func statusLabel(bool ok) string {
 
 // 复杂逻辑必须用 if-else：
 func safeMax(int a, int b) int {
+    int bigger = b                                       // 兜底值
     if a > b {
-        return computeMax(a)                            // if-else 允许函数调用
+        bigger = a
     }
-    return computeMax(b)
+    return computeMax(bigger)                            // if-else 允许函数调用
 }
 
 
 // ═══ 3.1 if / else ═══
+// 规则：if 只做条件分流与取值，正常结果在末尾单点 return（见 §11.6）
+//   guard 区：函数开头连续的 if，只处理「失败 / 不可继续」，单分支、不带 else
+//   主体区：只能有 1 个 return，且必须是最后一条语句
 
 func isPositive(int x) string {
+    string label = "zero"                                // 兜底值
     if x > 0 {
-        return "positive"
+        label = "positive"
     } else if x < 0 {
-        return "negative"
-    } else {
-        return "zero"
+        label = "negative"
     }
+    return label                                         // 单点返回
 }
+
+// ❌ 每个分支各自 return —— 出口翻倍，编译错误
+// func isPositiveBad(int x) string {
+//     if x > 0 {
+//         return "positive"
+//     } else if x < 0 {
+//         return "negative"
+//     } else {
+//         return "zero"
+//     }
+// }
 
 // if 支持 init 语句
 func absValue(int x) int {
+    int result = x                                      // 兜底值
     if val := x; val < 0 {
-        return -val
+        result = -val
     }
-    return x
+    return result
 }
 
 
 // ═══ 3.2 for 循环（唯一循环语句） ═══
+// 出口规则（§11.6）：循环内 return 不被禁止，只受「必要性」约束
+//   ✅ 允许：遍历的唯一目的就是查找 / 判定，命中即可结束，循环之后没有其它逻辑
+//   ✅ 也允许：未命中时由循环后的兜底 return 收尾
+//   ❌ 不必要：循环之后还有必须执行的收尾（写回、清理、追加），此时用 break + 统一变量
+
+func indexOf(int[] xs, int target) int {
+    for int i := 0; i < xs.length(); i = i + 1 {
+        if xs[i] == target {
+            return i                                     // ✅ 找到即返回：循环之后无其它逻辑
+        }
+    }
+    return -1                                            // 未找到
+}
+
+// ✅ 循环之后还有必须执行的动作（flush）—— 用 break，让收尾必然发生
+func importAll(string[] lines) int {
+    int ok = 0
+    for int i := 0; i < lines.length(); i = i + 1 {
+        if lines[i] == "" {
+            break                                        // 空行终止遍历，但 flush 仍要执行
+        }
+        ok = ok + 1
+    }
+    flush()                                              // 收尾：无论循环怎么结束都要执行
+    return ok
+}
+
 
 func sumRange(int n) int {
     // 经典三段式
@@ -1275,54 +1324,89 @@ func printValues(string[] items) {
 
 
 // ═══ 3.3 switch ═══
+// 规则：switch 只做分发与求值，不做返回
+//   1. 结果变量在 switch 之前声明，并以「兜底值」初始化
+//   2. case 内用 = 赋值，必须以 break 终止（穿透是默认行为）
+//   3. switch 之后单点 return —— switch 内出现 return 即编译错误
+//   4. 本节是 §11.6「正常出口唯一」在 switch 上的具体化：取值分支一律不产生出口
 
 func grade(int score) string {
+    string result = "D"                                   // 兜底值
     switch score {
         case 90, 100:
-            return "A"
+            result = "A"
+            break
         case 80, 89:
-            return "B"
+            result = "B"
+            break
         case 70, 79:
-            return "C"
+            result = "C"
+            break
         default:
-            return "D"
+            result = "D"
+            break
     }
+    return result                                         // 单点返回
 }
 
-// switch 支持 init 语句
+// switch 支持 init 语句（init 变量的作用域覆盖整个 switch）
 func evaluate(int x) string {
+    string result = "other"
     switch v := x * 2; v {
         case 10:
-            return "ten"
+            result = "ten"
+            break
         case 20:
-            return "twenty"
+            result = "twenty"
+            break
         default:
-            return "other"
+            result = "other"
+            break
     }
+    return result
 }
 
 // switch 无表达式 = 替代 if-else 链
 func describe(int n) string {
+    string text = "positive"
     switch {
         case n < 0:
-            return "negative"
+            text = "negative"
+            break
         case n == 0:
-            return "zero"
+            text = "zero"
+            break
         default:
-            return "positive"
+            text = "positive"
+            break
     }
+    return text
 }
 
-// switch 对枚举穷举检查
+// switch 对枚举穷举检查：兜底值即缺 case 时的结果
 func weekendLabel(Day d) string {
+    string label = "unknown"
     switch d {
         case Day.MONDAY, Day.TUESDAY, Day.WEDNESDAY, Day.THURSDAY, Day.FRIDAY:
-            return "workday"
+            label = "workday"
+            break
         case Day.SATURDAY, Day.SUNDAY:
-            return "weekend"
-        // ❌ 如果 Day 有 7 个常量但只写了 2 个 case → 编译警告
+            label = "weekend"
+            break
+        // ❌ Day 新增常量但这里没补 case → 编译警告，label 保持 "unknown"
     }
+    return label
 }
+
+// ❌ 每个分支各自 return —— 编译错误（switch 内禁止 return）
+// func gradeBad(int score) string {
+//     switch score {
+//         case 90, 100:
+//             return "A"
+//         default:
+//             return "D"
+//     }
+// }
 
 
 // ═══ 3.4 goto ═══
@@ -1374,13 +1458,16 @@ func lambdaDemo() {
     Supplier<int> five := () -> 5
 }
 
-// 3.5b. 多行 Lambda（需显式 return）
+// 3.5b. 多行 Lambda（块体需显式 return，且同样遵守单出口：§11.6）
 func lambdaBlock() {
-    Calculator max := (a, b) -> {
-        if a > b {
-            return a
+    Calculator max := (a, b) -> a > b ? a : b            // 取值选择用三元，不用早退
+
+    // 需要多条语句时才用块体：guard 区 + 末尾单点 return
+    Calculator safeMax := (a, b) -> {
+        if a < 0 || b < 0 {
+            return 0                                     // guard：非法输入
         }
-        return b
+        return a > b ? a : b                             // 唯一的正常出口
     }
 
     Consumer<string> logger := (msg) -> {
@@ -1417,12 +1504,13 @@ func anonymousFuncDemo() {
 
     int result := add(3, 5)                             // 8
 
-    // 多行匿名函数
+    // 多行匿名函数（块体同样单出口）
     max := func(int a, int b) int {
+        int bigger = b                                   // 兜底值
         if a > b {
-            return a
+            bigger = a
         }
-        return b
+        return bigger
     }
 
     // 匿名函数作为参数（内联）

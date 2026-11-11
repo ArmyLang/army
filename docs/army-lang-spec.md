@@ -64,7 +64,8 @@ string       decimal
 >   - `final` 实例字段 — 实例常量（每个实例可不同值，但构造后不可变）
 >   - `static final` — 类级常量（所有实例共享）
 >   - `final` 局部变量 — 局部不可变变量
-> - Army 无 `fallthrough` 关键字，switch 各 case 默认穿透（C 风格），必须显式 `break`。
+> - Army 无 `fallthrough` 关键字，switch 各 case 默认穿透（C 风格），必须显式 `break`；且 switch 内禁止 `return`，结果由
+    switch 之前的统一变量接收、在 switch 之后单点返回（见 §7.3）。
 > - 类型名是硬关键字，不可被 shadow（与 Go 不同，Go 中类型名是预声明标识符）。
 > - `bool`、`error`、`any` 是预声明标识符（非关键字），可被 shadow（不推荐）。
 
@@ -582,10 +583,13 @@ Calculator mul := (a, b) -> a * b
 StringFilter notEmpty := s -> s.length() > 0
 Supplier<int> five := () -> 5
 
-// 多行 Lambda
-Calculator max := (a, b) -> {
-    if a > b { return a }
-    return b
+// 多行 Lambda（块体需显式 return，且同样单出口：§11.6）
+Calculator max := (a, b) -> a > b ? a : b
+Calculator guarded := (a, b) -> {
+    if a < 0 || b < 0 {
+        return 0                                          // guard：非法输入
+    }
+    return a > b ? a : b                                  // 唯一的正常出口
 }
 ```
 
@@ -695,19 +699,40 @@ func Handler process(string data) bool {
 
 ### 7.1 if / else
 
+if 只做条件分流与取值， **正常结果在函数末尾单点 `return`**（见 §11.6）：分支里改值，出口留在末尾。
+
 ```army
-if x > 0 {
-    return "positive"
-} else if x < 0 {
-    return "negative"
-} else {
-    return "zero"
+func sign(int x) string {
+    string label = "zero"                                // 兜底值
+    if x > 0 {
+        label = "positive"
+    } else if x < 0 {
+        label = "negative"
+    }
+    return label
 }
 
 // if 支持 init 语句
-if val := x; val < 0 {
-    return -val
+func magnitude(int x) int {
+    int result = 0
+    if val := x; val < 0 {
+        result = -val
+    } else {
+        result = val
+    }
+    return result
 }
+
+// ❌ 每个分支各自 return —— 出口翻倍，编译错误（§11.6）
+// func signBad(int x) string {
+//     if x > 0 {
+//         return "positive"
+//     } else if x < 0 {
+//         return "negative"
+//     } else {
+//         return "zero"
+//     }
+// }
 ```
 
 ### 7.2 for 循环
@@ -741,73 +766,159 @@ for _, value := range items {
 }
 ```
 
+**循环体内的 `return` 不禁止，只受必要性约束**（§11.6 规则 3）：遍历的唯一目的就是查找 /
+判定、命中即可结束、循环之后没有必须执行的语句 → 允许直接 `return`；若循环之后还有收尾动作（写回、清理、`flush`、追加统计），提前
+`return` 会跳过它 → 改用 `break` + 统一变量。
+
+```army
+// ✅ 允许：遍历只为查找，命中即结束，循环后无其它逻辑
+func indexOf(int[] xs, int target) int {
+    for int i = 0; i < xs.length(); i = i + 1 {
+        if xs[i] == target {
+            return i                                     // 必要：只跳过剩余迭代
+        }
+    }
+    return -1                                            // 未找到
+}
+
+// ✅ 循环后有收尾动作 —— 用 break，让收尾必然执行
+func indexOfAndLog(int[] xs, int target) int {
+    int index = -1                                       // 兜底值：未找到
+    for int i := 0; i < xs.length(); i = i + 1 {
+        if xs[i] == target {
+            index = i
+            break                                        // 命中即停，但不越过 log
+        }
+    }
+    log(index)                                           // 收尾：提前 return 会跳过它 → 不必要
+    return index
+}
+
+// ❌ 循环后还有收尾却提前 return —— 跳过了 log
+// func bad(int[] xs, int target) int {
+//     for int i := 0; i < xs.length(); i = i + 1 {
+//         if xs[i] == target {
+//             return i                                 // ❌ 规则 3：跳过了循环之后的 log
+//         }
+//     }
+//     log(-1)
+//     return -1
+// }
+```
+
+判断标准只有一条： **这个 `return` 跳过了什么**——只跳过未走完的迭代 → 必要；还跳过了循环之后的语句 →
+不必要。若退出条件与遍历完全无关（不是命中判定），应把它上提到函数开头的 guard 区。
+
 ### 7.3 switch
 
 Army 的 switch 与 C 一致：**case 默认穿透，必须显式 `break` 终止**。Army 无 `fallthrough` 关键字（穿透已是默认行为）。
 
+**switch 只做分发与求值，不做返回**：结果由一个在 switch 之前声明的变量统一接收，switch 结束后 **单点 `return`**。禁止在每个分支各自
+`return`——那会把 switch 退化成 if-else 的伪装，且让返回值分散在多处、难以覆盖与审查。这是 §11.6「函数正常出口唯一」在 switch
+上的具体化。
+
 ```army
-// 基本 switch
-switch score {
-    case 90, 100:
-        grade := "A"
-        break
-    case 80, 89:
-        grade := "B"
-        break
-    default:
-        grade := "D"
-        break
+// 基本 switch：统一变量接收 + 单点 return
+func grade(int score) string {
+    string result = "D"                                  // 兜底值，先于 switch 声明
+    switch score {
+        case 90, 100:
+            result = "A"
+            break
+        case 80, 89:
+            result = "B"
+            break
+        case 70, 79:
+            result = "C"
+            break
+        default:
+            result = "D"
+            break
+    }
+    return result                                        // 唯一的 return
 }
 
 // 每个 case 最多 4 个选项
-switch day {
-    case 1, 2, 3, 4:
-        type := "weekday"
-        break
-    case 5, 9, 13, 21:
-        type := "special"
-        break
+func dayType(int day) string {
+    string type = "other"
+    switch day {
+        case 1, 2, 3, 4:
+            type = "weekday"
+            break
+        case 5, 9, 13, 21:
+            type = "special"
+            break
+        default:
+            type = "other"
+            break
+    }
+    return type
 }
 
 // ❌ 超过 4 个选项——编译错误，必须拆分
 // case 1, 2, 3, 4, 5:    // 错误：case 最多 4 个选项
 
-// 有意穿透：省略 break 即可
-switch char {
-    case 'a':
-    case 'e':
-    case 'i':
-    case 'o':
-    case 'u':
-        type := "vowel"
-        break
-    default:
-        type := "consonant"
-        break
+// 有意穿透：多个 case 标签共用一个 case 体
+func vowelKind(rune ch) string {
+    string kind = "consonant"
+    switch ch {
+        case 'a':
+        case 'e':
+        case 'i':
+        case 'o':
+        case 'u':
+            kind = "vowel"
+            break
+        default:
+            kind = "consonant"
+            break
+    }
+    return kind
 }
 
-// switch 支持 init 语句
-switch v := x * 2; v {
-    case 10:
-        result := "ten"
-        break
-    default:
-        result := "other"
-        break
+// switch 支持 init 语句（init 变量的作用域覆盖整个 switch）
+func doubleKind(int x) string {
+    string kind = "other"
+    switch v := x * 2; v {
+        case 10:
+            kind = "ten"
+            break
+        case 20:
+            kind = "twenty"
+            break
+        default:
+            kind = "other"
+            break
+    }
+    return kind
 }
 
 // 无表达式 switch（替代 if-else 链）
-switch {
-    case n < 0:
-        result := "negative"
-        break
-    case n == 0:
-        result := "zero"
-        break
-    default:
-        result := "positive"
-        break
+func sign(int n) string {
+    string s = "positive"
+    switch {
+        case n < 0:
+            s = "negative"
+            break
+        case n == 0:
+            s = "zero"
+            break
+        default:
+            s = "positive"
+            break
+    }
+    return s
 }
+
+// ❌ 每个分支各自 return —— 编译错误
+// func gradeBad(int score) string {
+//     switch score {
+//         case 90, 100:
+//             return "A"
+//         default:
+//             return "D"
+//     }
+// }
 ```
 
 规则：
@@ -817,8 +928,15 @@ switch {
 - 每个 `case` 最多支持 **4 个选项**（逗号分隔），超过 4 个的匹配必须拆分到多个 case
 - **`default` 必须出现在所有 `case` 之后**，不可插在中间
 - 对枚举进行穷举检查（缺 case 产生编译警告）
-- **严禁在 `switch` 内出现 `return` 语句**——编译错误。switch 只能通过 `break` 终止 case，通过 `goto` 跳出 switch 整体。返回值必须在 switch 之后处理
+- **严禁在 `switch` 内出现 `return` 语句**——编译错误。switch 只能通过 `break` 终止 case，通过 `goto` 跳出 switch 整体
+- **结果必须由 switch 之前的统一变量接收**：变量在 switch 之前声明并用「兜底值」初始化，case 内用 `=` 赋值，switch 之后单点
+  `return` 该变量；兜底值即「未被任何 case 命中」时的结果
+- **case 是独立作用域**：case 内用 `:=` 声明的变量只在该 case 内可见，不得用于把结果带出 switch；需要带出的值必须用 `=`
+  赋给外部变量
+- **`break` 只跳出最内层 switch**：若需要在循环内的 switch 中退出整个循环，用 `goto` 跳到循环之后的标签（见 §7.4）
+- 编译器报错文案固定为：`switch 只做分发与求值，不做返回。请用统一变量接收、以 break 收敛，把 return 放到 switch 之后。`
 
+```army
 // ❌ default 插在 case 中间——编译错误
 // switch v {
 //     case 1:
@@ -828,6 +946,7 @@ switch {
 //     case 2:
 //         break
 // }
+```
 
 ### 7.4 goto
 
@@ -841,6 +960,9 @@ Army 的 `goto` 规则与 Go 完全一致：
 - **禁止跳过变量声明**——`goto` 不能跳过带 `:=` 或 `=` 的变量声明语句，确保变量始终被正确初始化
 - **禁止跳入新的代码块**——不能从外部跳入 `if`、`for`、`switch` 的大括号内部
 - 标签与其跳转目标必须在同一函数内
+
+**与出口规则的关系**：`goto` 只跳出 `for` / `switch` 并继续执行，不产生出口。命中即结束的查找可以直接 `return`（§11.6 规则
+3）；只有当循环之后还有收尾动作、或需要跳出多层时，才用「统一变量 + `break` / `goto` 到循环后的标签」，出口留在函数末尾。
 
 ```army
 // ✅ 基本用法：跳出循环
@@ -856,9 +978,9 @@ func findFirst(int[] arr, int target) int {
     return index
 }
 
-// ✅ 跳出 switch（结合禁止 return 的规则）
+// ✅ 跳出 switch（结合禁止 return 的规则：统一变量已初始化，goto 到 switch 之后的标签）
 func classify(int n) string {
-    string result
+    string result = "other"                              // 兜底值
     switch n {
         case 1:
             result = "one"
@@ -866,12 +988,9 @@ func classify(int n) string {
         case 2:
             result = "two"
             goto out
-        default:
-            result = "other"
-            goto out
     }
     out:
-    return result
+    return result                                        // 单点返回
 }
 
 // ❌ 跳过变量声明——编译错误
@@ -1357,8 +1476,11 @@ func 函数名(参数列表) [返回类型] { 语句块 }
 
 ```army
 func maxOf(int a, int b) int {
-    if a > b { return a }
-    return b
+    int bigger = b                                       // 兜底值
+    if a > b {
+        bigger = a
+    }
+    return bigger                                        // 单点返回（§11.6）
 }
 
 // 多返回值
@@ -1541,6 +1663,9 @@ func parse(string raw) (User u?, error e?) {
 
 收窄 **不跨分支传播**：`!= nil` 为假的分支中该值仍是可 null。
 
+**switch 内不使用提前返回**（§7.3 禁止 switch 内 `return`）：switch 内处理 null 统一写成「`?` 变量暂存 → `break` → switch
+之后集中判断」，把失败状态用一个 `error?` 变量带出，再在 switch 结束后单点处理。
+
 **可 null 参数与可 null 返回值地位完全相同**：函数体内对未收窄的可 null 参数做运算、访问成员、赋给 not-null 变量、从
 not-null 返回值返回、传给 not-null 参数，同样是编译错误；把它直接传给接收可 null 参数的函数，同样合法。
 
@@ -1554,12 +1679,13 @@ func showUser() {
 }
 
 // ✅ 处理方式二：== nil 提前返回（guard 写法）
+// null 不可用即「无法继续」，属于失败路径，因此这种早退只能出现在函数开头的 guard 区（§11.6）
 func userName() string {
     User u? := findUser(1)
     if u == nil {
-        return "unknown"                                 // 提前处理 null 路径
+        return "unknown"                                 // guard ①：null 不可用
     }
-    return u.name()                                      // 之后按 not-null 使用
+    return u.name()                                      // 唯一的正常出口
 }
 
 // ❌ 未处理 null 就使用 —— 编译错误
@@ -1601,6 +1727,143 @@ func forward(int v?) int {
 // ✅ 可 null → 可 null 上下文无需处理
 func passUser() User? {
     return findUser(1)
+}
+```
+
+### 11.6 出口控制：正常出口唯一
+
+Army 的根本原则： **一个函数的出口数量必须与其必要性匹配 —— 不必要即编译错误。**
+
+函数体被划分为三处出口位置：
+
+| 出口位置               | 位置                           | `return` 数量            | 语义                                                                     |
+|------------------------|--------------------------------|--------------------------|--------------------------------------------------------------------------|
+| 前置校验区（guard 区） | 函数体最开头，连续的 `if`      | 0 个或多个               | 参数非法、前置条件不满足、资源不可用、可 null 值不可用 —— **不继续执行** |
+| 主体区末尾             | guard 区之后的主体最后一条语句 | **恰好 1 个**            | 正常结果的唯一出口                                                       |
+| 循环内早退             | 主体区内 `for` 体中            | 0 个或多个，受必要性约束 | 命中即结束，只跳过剩余迭代                                               |
+
+可检查规则：
+
+1. **主体区内的 `return` 只能出现在函数最后一条语句**：不得在 `else` 分支内、`switch` 内、或中部语句之间出现 `return` →
+   编译错误。循环体内 `return` 不在此列，见规则 3。
+2. **guard 必须是「出口即终止」的单分支**：`if 失败条件 { return ... }`， **不得带 `else`**。`if-else` 两分支都 `return`
+   是把正常取值写成了出口 → 编译错误。
+3. **`for` 循环体内的 `return` 不禁止，只受必要性约束**：遍历的唯一目的就是查找 /
+   判定，命中即可结束且循环之后没有必须执行的语句 → 允许（编译器不报错）；若循环之后仍有收尾动作（写回、清理、flush、追加统计），提前
+   `return` 会跳过它 → 编译错误，改用 `break` + 统一变量。用 `return` 表达「跳过本次迭代」的意图亦属错误，应用 `continue`。
+4. **`switch` 内禁止 `return`**（见 §7.3）：统一变量 + 单点返回。
+5. **lambda / 匿名函数的块体**同样遵守本节；表达式体 lambda 不存在显式出口。
+6. **无返回值函数**：guard 区允许裸 `return`；主体区无出口语句。
+7. **guard 区必须连续**：第一条非 `if` 语句出现即结束 guard 区，之后再出现 `if X { return }` 即违反规则 1。
+
+本节不是「单出口教条」：guard 可以任意多个，因为它们都是 **终止路径**；被约束的是 **正常出口**，只能有一个。
+
+判定一个额外出口是否「必要」，须同时满足：位于 guard 区或「命中即结束」的循环内；条件是「失败 / 命中 / 不可继续」而非「取值选择」；去掉它只能用标志变量或
+`goto` 表达且更隐晦。判断循环内 `return` 的唯一标准是 **它跳过了什么**：跳过的只有未走完的迭代 →
+必要；跳过了循环之后的语句 → 不必要。
+
+编译器报错文案固定为：`函数的正常出口必须唯一。提前 return 只允许出现在函数开头的前置校验区或「命中即结束」的循环内；其余位置请在主体中用统一变量收敛结果，在末尾单点 return。`
+
+```army
+// ✅ 0 个 guard：唯一出口
+func lenOf(string s) int {
+    return s.length()
+}
+
+// ✅ 2 个 guard + 1 个正常出口
+func parseAge(string raw) (int, error?) {
+    int a? := toInt(raw)
+    if a == nil {
+        return 0, error("invalid number")                 // guard ①：无法继续
+    }
+    if a < 0 {
+        return 0, error("negative age")                   // guard ②：输入非法
+    }
+    return a, nil                                         // 唯一的正常出口
+}
+
+// ❌ 主体中途返回：把「取值选择」写成了出口
+// func fee(int amount) int {
+//     if amount < 0 {
+//         return 0                                      // ✅ 这是 guard，合法
+//     }
+//     int total := amount * 2
+//     if total > 100 {
+//         return 100                                    // ❌ 主体区 return，编译错误
+//     }
+//     return total
+// }
+
+// ✅ 上例的正确写法：变量修正，末尾单点返回
+func fee(int amount) int {
+    if amount < 0 {
+        return 0
+    }
+    int total := amount * 2
+    if total > 100 {
+        total = 100
+    }
+    return total
+}
+
+// ❌ if-else 两分支各自 return —— 出口翻倍（规则 2）
+// func abs(int x) int {
+//     if x < 0 {
+//         return -x
+//     } else {
+//         return x
+//     }
+// }
+
+// ✅ 变量收敛
+func abs(int x) int {
+    int result := x
+    if x < 0 {
+        result = -x
+    }
+    return result
+}
+
+// ✅ 循环内 return：遍历的唯一目的就是查找，命中即结束，循环后无其它语句（规则 3 允许）
+func firstNegative(int[] xs) int {
+    for i := 0; i < xs.length(); i = i + 1 {
+        if xs[i] < 0 {
+            return xs[i]                                  // 必要：只跳过剩余迭代
+        }
+    }
+    return 0                                             // 未找到
+}
+
+// ✅ 循环后仍有收尾动作时，改用 break + 统一变量，让收尾必然执行
+func firstNegativeThenReset(int[] xs) int {
+    int found = 0                                        // 兜底值
+    for i := 0; i < xs.length(); i = i + 1 {
+        if xs[i] < 0 {
+            found = xs[i]
+            break                                        // 命中即停，但 reset 仍要执行
+        }
+    }
+    reset()                                             // 收尾：提前 return 会跳过它 → 不必要
+    return found
+}
+
+// ❌ 循环后还有收尾却提前 return —— 跳过 reset
+// func bad(int[] xs) int {
+//     for i := 0; i < xs.length(); i = i + 1 {
+//         if xs[i] < 0 {
+//             return xs[i]                             // ❌ 规则 3：跳过了循环之后的 reset
+//         }
+//     }
+//     reset()
+//     return 0
+// }
+
+// ✅ 处理 null 的 `== nil` 早退正是 guard 区的标准用法（§11.5.1）
+func nameOf(User u?) string {
+    if u == nil {
+        return "unknown"
+    }
+    return u.name()
 }
 ```
 
