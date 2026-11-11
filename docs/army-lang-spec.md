@@ -518,7 +518,8 @@ map<string, int> scores := map<string, int>{"alice": 95, "bob": 87}
 
 `nil` 是引用类型和接口类型的零值。
 
-**空安全**：所有函数的参数与返回值默认 **not-null** —— 返回 `nil` 或可 null 值、向 not-null 参数传入 `nil` 或可 null 值，一律编译错误。需要可 null 的位置必须显式加 `@Nullable` 注解（见 §11.5）。
+**空安全**：所有函数的参数与返回值默认 **not-null** —— 返回 `nil` 或可 null 值、向 not-null 参数传入 `nil` 或可 null
+值，一律编译错误。需要可 null 的位置必须显式标注 `?`（名字后加 `?`；返回值无名字时加在类型名后，见 §11.5）。
 
 ---
 
@@ -1454,34 +1455,39 @@ func bar(int a, string s = "hi") { ... }
 func bar(int a) { ... }                    // ❌ 编译错误：有效参数个数都是 1
 ```
 
-### 11.5 空安全：默认 not-null 与 @Nullable
+### 11.5 空安全：默认 not-null 与可 null 标注 `?`
 
 Army 所有函数的**参数与返回值默认 not-null**：
 
 - **返回** `nil` 或可 null 值 —— 编译错误
 - **向 not-null 参数传入** `nil` 或可 null 值 —— 编译错误
-- 想传入或返回可 null 值，必须为该参数 / 返回值加 `@Nullable` 注解
+- 想传入或返回可 null 值，必须显式标注可 null： **在名字之后加 `?`**；返回值没有名字时，在 **类型名之后加 `?`**
 
-语法：`@Nullable` 写在类型之前，注解与类型之间恰好一个空格：
+语法：
+
+- **参数**：`?` 加在参数名之后 —— `User u?` 表示参数 `u` 可 null
+- **匿名返回值**：`?` 加在类型名之后 —— `User?` 表示返回值可 null
+- **命名返回值**：`?` 加在名字之后 —— `error err?` 表示返回值 `err` 可 null
+- **局部变量 / 字段**：与参数相同，`?` 加在名字之后 —— `User u? := ...`、`T data?`
 
 ```army
-// ✅ 默认即 not-null：参数与返回值无需任何注解
+// ✅ 默认即 not-null：参数与返回值无需任何标注
 func lenOf(string s) int {
     return s.length()
 }
 
-// ✅ @Nullable 参数：允许调用方传 nil
-func greet(@Nullable User u) string {
+// ✅ 可 null 参数（名字后加 ?）：允许调用方传 nil
+func greet(User u?) string {
     if u == nil {
         return "hello, guest"
     }
     return "hello, " + u.name()
 }
 
-// ✅ @Nullable 返回值：允许返回 nil
-func findUser(int id) @Nullable User {
+// ✅ 可 null 返回值（匿名返回值在类型名后加 ?）：允许返回 nil
+func findUser(int id) User? {
     if id < 0 {
-        return nil                                       // ✅ 返回类型带 @Nullable
+        return nil                                       // ✅ 返回类型带 ?
     }
     return loadUser(id)
 }
@@ -1500,18 +1506,103 @@ func findUser(int id) @Nullable User {
 
 规则：
 
-- `@Nullable` 按位置逐个标注；**多返回值中未标注的位置仍是 not-null**：
+- `?` 按位置逐个标注； **多返回值中未标注的位置仍是 not-null**：
 
 ```army
-func parse(string raw) (@Nullable User, @Nullable error) {
+func parse(string raw) (User u?, error e?) {
     // 第一项与第二项都可空
 }
 ```
 
-- `nil` 只能出现在 `@Nullable` 标注的类型位置；not-null 位置出现 `nil` 或可 null 值均编译错误。
-- 可 null 值（来自 `@Nullable` 返回值、可空变量等）在未收窄前传给 not-null 参数或赋给 not-null 变量同样是编译错误，必须先做 `!= nil` 判断收窄。
-- `@Nullable` 也可用于局部变量与字段声明；未标注的变量 / 字段同样 not-null。
-- interface 的抽象方法声明同样遵循本规则；`@Nullable` 是签名的一部分，实现必须与声明一致。
+- `nil` 只能出现在带 `?` 的类型位置；not-null 位置出现 `nil` 或可 null 值均编译错误。
+- 可 null 值（来自 `?` 返回值、可空变量、可空参数等）在未收窄前传给 not-null 参数或赋给 not-null 变量同样是编译错误，必须先做
+  `!= nil` 判断收窄。
+- 传给接收可 null（`?`）参数的函数不需要收窄 —— 由被调函数负责处理 null（见 §11.5.1）。
+- `?` 也可用于局部变量与字段声明（名字后加 `?`）；未标注的变量 / 字段同样 not-null。
+- interface 的抽象方法声明同样遵循本规则；`?` 是签名的一部分，实现必须与声明一致。
+
+#### 11.5.1 可 null 返回值必须处理 null
+
+调用返回可 null（`?`）的函数后，其结果在 **未处理 null 前只能进入可 null 上下文**：
+
+- 赋给可 null（`?`）变量 / 字段 —— **只是暂存，不算处理**，之后使用该变量仍需处理；
+- 传给接收可 null（`?`）参数的函数 —— **合法，等于把 null 处理委派给被调函数**；
+- 从可 null（`?`）返回值返回；
+- 与 `nil` 比较。
+
+未处理就进入 not-null 上下文 —— 访问成员 / 字段、传给 not-null 参数、赋给 not-null 变量、从 not-null 返回值返回、参与运算（如
+`a + 1`） —— 一律 **编译错误**。
+
+处理方式有三种：
+
+1. `!= nil` 收窄 —— 真分支内该值按 not-null 使用；
+2. `== nil` 提前返回 / 分支处理（guard 写法）；
+3. 直接传给接收可 null（`?`）参数的函数，把处理责任委派出去。
+
+收窄 **不跨分支传播**：`!= nil` 为假的分支中该值仍是可 null。
+
+**可 null 参数与可 null 返回值地位完全相同**：函数体内对未收窄的可 null 参数做运算、访问成员、赋给 not-null 变量、从
+not-null 返回值返回、传给 not-null 参数，同样是编译错误；把它直接传给接收可 null 参数的函数，同样合法。
+
+```army
+// ✅ 处理方式一：!= nil 收窄后使用
+func showUser() {
+    User u? := findUser(1)
+    if u != nil {
+        print(u.name())                                  // 收窄后按 not-null 使用
+    }
+}
+
+// ✅ 处理方式二：== nil 提前返回（guard 写法）
+func userName() string {
+    User u? := findUser(1)
+    if u == nil {
+        return "unknown"                                 // 提前处理 null 路径
+    }
+    return u.name()                                      // 之后按 not-null 使用
+}
+
+// ❌ 未处理 null 就使用 —— 编译错误
+// func careless() string {
+//     User u? := findUser(1)
+//     return u.name()                                    // u 未收窄，可能是 nil
+// }
+
+// ✅ 处理方式三：直接传给接收可 null 参数的函数（委派处理）
+func addOrZero(int v?) int {
+    if v == nil {
+        return 0
+    }
+    return v
+}
+
+func delegate() int {
+    int a? := loadCount()
+    return addOrZero(a)                                  // ✅ 合法：拿 null 交给 addOrZero 处理
+}
+
+// ✅ 可 null 参数同理：直接传给接收可 null 参数的函数
+func forward(int v?) int {
+    return addOrZero(v)                                  // ✅ 合法，无需先收窄
+}
+
+// ❌ 可 null 值参与运算 —— 编译错误
+// func bad() int {
+//     int a? := loadCount()
+//     int b? := a + 1                                  // ❌ a 未处理，暂存不等于处理
+//     return 0
+// }
+
+// ❌ 可 null 参数参与运算 —— 编译错误
+// func bad2(int v?) int {
+//     return v + 1                                     // ❌ v 未处理
+// }
+
+// ✅ 可 null → 可 null 上下文无需处理
+func passUser() User? {
+    return findUser(1)
+}
+```
 
 ---
 

@@ -6,7 +6,7 @@
 
 // ═══════════════════════ 内置类型 ═══════════════════════
 // int, float, decimal, string, bool, void, error
-// 空安全：函数参数与返回值默认 not-null，可 null 必须加 @Nullable（见 3.8 节）
+// 空安全：函数参数与返回值默认 not-null，可 null 在名字 / 类型后加 ?（见 3.8 节）
 
 
 // ====================================================================
@@ -130,7 +130,7 @@ func (Buffer* b) append(string s) {
     b.size = b.data.length()
 }
 
-func (Buffer b) read() (string data, @Nullable error err) {    // err 可为 nil，必须标注
+func (Buffer b) read() (string data, error err?) {             // err 可为 nil，名字后加 ?
     if b.size == 0 {
         return "", error("empty buffer")
     }
@@ -667,7 +667,7 @@ func<T> swap(T a, T b) (T, T) {
     return b, a
 }
 
-func<T> first(T[] items) @Nullable T {                        // 空数组时返回 nil，返回值必须标注
+func<T> first(T[] items) T? {                                 // 空数组时返回 nil，类型名后加 ?
     if items.length() == 0 {
         return nil
     }
@@ -681,7 +681,7 @@ interface Repository<T> {
     func save(T entity)
 }
 
-func (Repository<T>) empty() @Nullable T {
+func (Repository<T>) empty() T? {
     return nil
 }
 
@@ -708,10 +708,10 @@ func (UserRepo r) save(Pair<string, int> entity) {
     SOME(T)
     NONE
 
-    @Nullable T data                                  // NONE 没有数据时值为 nil
+    T data?                                           // NONE 没有数据时值为 nil
 }
 
-func (Option<T> o) unwrap() @Nullable T {
+func (Option<T> o) unwrap() T? {
     if o == Option.NONE {
         // 编译检查：调用 unwrap 前应判断
     }
@@ -751,15 +751,15 @@ func (Option<T> o) unwrap() @Nullable T {
 // ═══ 2.0 interface 组合（Go 风格嵌入，分区：嵌入区 → func 区） ═══
 
 interface Reader {
-    func read() (string data, @Nullable error err)       // err 可空
+    func read() (string data, error err?)                // err 可空，名字后加 ?
 }
 
 interface Writer {
-    func write(string data) @Nullable error              // 成功时返回 nil
+    func write(string data) error?                       // 成功时返回 nil，类型名后加 ?
 }
 
 interface Closer {
-    func close() @Nullable error
+    func close() error?
 }
 
 // 组合：嵌入多个 interface，写在 func 声明之前
@@ -768,8 +768,8 @@ interface ReadWriter {
     Writer
 }
 
-func (ReadWriter) copy(Reader r, Writer w) @Nullable error {    // 静态方法
-    string data, @Nullable error err := r.read()
+func (ReadWriter) copy(Reader r, Writer w) error? {             // 静态方法
+    string data, error err? := r.read()
     if err != nil { return err }
     return w.write(data)
 }
@@ -780,11 +780,11 @@ interface ReadWriteCloser {
     Writer
     Closer
 
-    func flush() @Nullable error                         // func 声明在嵌入区之后
+    func flush() error?                                  // func 声明在嵌入区之后
 }
 
-func (ReadWriteCloser) pipe(Reader r, Writer w) @Nullable error {
-    string data, @Nullable error err := r.read()
+func (ReadWriteCloser) pipe(Reader r, Writer w) error? {
+    string data, error err? := r.read()
     if err != nil { return err }
     return w.write(data)
 }
@@ -817,11 +817,11 @@ func (FileRW) NewFileRW(string p) {
     FileRW.path = p
 }
 
-func (FileRW f) read() (string data, @Nullable error err) {
+func (FileRW f) read() (string data, error err?) {
     return readFile(f.path), nil
 }
 
-func (FileRW f) write(string data) @Nullable error {
+func (FileRW f) write(string data) error? {
     return writeFile(f.path, data)
 }
 
@@ -1525,37 +1525,39 @@ func increment(int a, int delta, string log) (int result, string msg) {
 // func increment(int a) string { ... }                  // 编译错误：参数个数=1，已存在
 
 
-// ═══ 3.8 空安全：参数与返回值默认 not-null，@Nullable 显式放宽 ═══
+// ═══ 3.8 空安全：参数与返回值默认 not-null，名字 / 类型后加 ? 显式放宽 ═══
 // 规则：
 //   1. 所有函数的参数与返回值默认 not-null
 //   2. 返回 nil 或可 null 值 → 编译错误
 //   3. 向 not-null 参数传入 nil 或可 null 值 → 编译错误
-//   4. 想传入 / 返回可 null 值，必须为该参数 / 返回值加 @Nullable 注解
-//   5. @Nullable 写在类型之前，多返回值逐个标注，未标注的位置仍是 not-null
+//   4. 想传入 / 返回可 null 值，必须在名字后加 ?：参数 `User u?`、命名返回值 `error err?`；
+//      返回值没有名字时加在类型名后：`User?`
+//   5. ? 按位置逐个标注，多返回值中未标注的位置仍是 not-null
+//   6. 调用返回可 null 的函数后，必须先处理 null 才能按 not-null 使用（见 3.8b）
 
-// ✅ 默认即 not-null：参数与返回值无需任何注解
+// ✅ 默认即 not-null：参数与返回值无需任何标注
 func lenOf(string s) int {
     return s.length()
 }
 
-// ✅ @Nullable 参数：允许调用方传 nil
-func greetUser(@Nullable Pair<string, int> u) string {
+// ✅ 可 null 参数（名字后加 ?）：允许调用方传 nil
+func greetUser(Pair<string, int> u?) string {
     if u == nil {
         return "hello, guest"
     }
     return "hello, " + u.key                              // != nil 判断后收窄为 not-null
 }
 
-// ✅ @Nullable 返回值：允许返回 nil
-func findOrNil(string id) @Nullable Pair<string, int> {
+// ✅ 可 null 返回值（匿名返回值在类型名后加 ?）：允许返回 nil
+func findOrNil(string id) Pair<string, int>? {
     if id == "" {
-        return nil                                        // ✅ 返回类型带 @Nullable
+        return nil                                        // ✅ 返回类型带 ?
     }
     return Pair{K: id, V: 0}
 }
 
 // ✅ 多返回值逐个标注：第一项 not-null，第二项可空
-func parseLen(string raw) (int, @Nullable error) {
+func parseLen(string raw) (int, error?) {
     if raw == "" {
         return 0, error("empty input")
     }
@@ -1571,16 +1573,93 @@ func parseLen(string raw) (int, @Nullable error) {
 // lenOf(nil)
 
 // ❌ 可 null 值传给 not-null 参数 —— 编译错误
-// lenOf(findOrNil("u1"))                                // findOrNil 返回 @Nullable，lenOf 参数是 not-null
+// lenOf(findOrNil("u1"))                                // findOrNil 返回可 null 值，lenOf 参数是 not-null
 
 // ✅ 可 null 值先判断收窄，再传给 not-null 参数
 func safeLen() int {
-    @Nullable Pair<string, int> found := findOrNil("u1")
+    Pair<string, int> found? := findOrNil("u1")
     if found == nil {
         return 0
     }
     return lenOf(found.key)                               // 收窄后可安全传入
 }
+
+
+// ═══ 3.8b 可 null 返回值必须处理 null ═══
+// 调用返回可 null 的函数后，未处理 null 前只能进入可 null 上下文：
+//   赋给可 null 变量（仅暂存）、传给可 null 参数（委派处理）、从可 null 返回值返回、与 nil 比较
+// 未处理就访问成员 / 传 not-null 参数 / 赋 not-null 变量 / 从 not-null 返回值返回 / 参与运算 —— 编译错误
+// 处理方式三种：!= nil 收窄、== nil 提前返回、直接传给接收 ? 参数的函数；收窄不跨分支传播
+
+// ✅ 处理方式一：!= nil 收窄后使用
+func showFirst() {
+    int head? := first([1, 2, 3])
+    if head != nil {
+        print(head)                                       // 收窄后按 not-null 使用
+    }
+}
+
+// ✅ 处理方式二：== nil 提前返回（guard 写法）
+func mustLen() int {
+    Pair<string, int> found? := findOrNil("u1")
+    if found == nil {
+        return 0                                          // 提前处理 null 路径
+    }
+    return lenOf(found.key)                               // 之后按 not-null 使用
+}
+
+// ❌ 未处理 null 就使用 —— 编译错误
+// func careless() int {
+//     int head? := first([1, 2, 3])
+//     return head                                        // head 未收窄，可能是 nil
+// }
+
+// ❌ 未收窄就传给 not-null 参数 —— 编译错误
+// func careless2() int {
+//     Pair<string, int> found? := findOrNil("u1")
+//     return lenOf(found.key)                            // found 未收窄
+// }
+
+// ✅ 可 null → 可 null 上下文无需处理
+func passThrough() int? {
+    return first([1, 2, 3])                               // 可 null 返回值直接透传
+}
+
+
+// ═══ 3.8c 可 null 值可以「委派」给接收 ? 参数的函数 ═══
+// 把可 null 值直接传给接收可 null 参数的函数是合法的：由被调函数负责处理 null
+// 可 null 参数与可 null 返回值地位相同：未处理直接参与运算 / 访问成员 → 编译错误
+
+// 可 null 参数：调用方可以传 nil，函数内部负责处理
+func addOrZero(int v?) int {
+    if v == nil {
+        return 0
+    }
+    return v
+}
+
+// ✅ 可 null 返回值直接传给 ? 参数函数 —— 合法，无需先收窄
+func delegate() int {
+    int a? := first([1, 2, 3])
+    return addOrZero(a)                                   // 拿 null 交给 addOrZero 处理
+}
+
+// ✅ 可 null 参数直接转发给 ? 参数函数 —— 合法
+func forward(int v?) int {
+    return addOrZero(v)
+}
+
+// ❌ 可 null 值参与运算 —— 编译错误（暂存不等于处理）
+// func bad() int {
+//     int a? := first([1, 2, 3])
+//     int b := a + 1                                    // ❌ a 未处理
+//     return b
+// }
+
+// ❌ 可 null 参数参与运算 —— 编译错误
+// func bad2(int v?) int {
+//     return v + 1                                      // ❌ v 未处理
+// }
 
 
 // ═══ 原有顶级函数 ═══
@@ -1629,8 +1708,8 @@ func main() {
     Box<string> strBox := Box{Box<string>.value: "hello"}
     string unboxed := strBox.get()
 
-    // 泛型函数（first 返回 @Nullable，需收窄后使用）
-    @Nullable int firstNum := first([1, 2, 3])
+    // 泛型函数（first 返回可 null，需收窄后使用）
+    int firstNum? := first([1, 2, 3])
     if firstNum != nil {
         print(firstNum)                                   // 收窄为 not-null
     }
